@@ -16,7 +16,7 @@ The MVP delivers a **narrow, realistic** path:
 
 **Latvian (documentation level):** Barbora product names, search terms, and product listings may be in Latvian. MVP requirements and user-facing documentation should acknowledge that; **matching or search strategy is not specified here.**
 
-**Explicitly not in this document:** A formal **run summary or output format** (structure, fields, file formats). That belongs to a later specification task. A review step on Barbora before checkout is in scope; how results are logged or summarized is not.
+**Explicitly not in this document:** The full **run summary** spec (structure, fields, presentation rules). See [run summary](run-summary.md). A review step on Barbora before checkout is in scope here; how results are logged or summarized in detail is not.
 
 ## Non-goals
 

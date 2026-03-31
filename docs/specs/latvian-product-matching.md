@@ -166,4 +166,4 @@ When multiple mappings could apply, **recency** (`lastConfirmedAt`) can prefer f
 - [User flow](user-flow.md) — Input through checkout handoff and manual payment.  
 - [System design](system-design.md) — Resolver vs executor; modules.  
 - [Data model](data-model.md) — NormalizedItem, KnownBarboraProductMapping, SubstitutionPolicy, run outcomes.  
-- Planned: [Run summary](run-summary.md) — structured reporting format (TASK-010).
+- [Run summary](run-summary.md) — logical summary structure and rules (TASK-010).
