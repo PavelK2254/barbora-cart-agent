@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-This document defines **conceptual data shapes** for barbora-cart-agent: what information moves between the [input layer, resolver, memory, executor, and summary boundary](system-design.md) for a single Barbora-focused MVP. It is **not** a persistence spec (no tables, files, or ORMs), **not** a matching or ranking strategy (see the planned [Latvian product matching](latvian-product-matching.md) spec), and **not** a presentation or export format for reports (see the planned [run summary](run-summary.md) spec).
+This document defines **conceptual data shapes** for barbora-cart-agent: what information moves between the [input layer, resolver, memory, executor, and summary boundary](system-design.md) for a single Barbora-focused MVP. It is **not** a persistence spec (no tables, files, or ORMs), **not** a matching or ranking strategy (see [Latvian product matching](latvian-product-matching.md)), and **not** a presentation or export format for reports (see the planned [run summary](run-summary.md) spec).
 
 **Payment:** The model supports automation **up to checkout handoff** only. It does **not** include payment methods, payment steps, or order completion. That matches [product requirements](product-requirements.md) and [user flow](user-flow.md).
 
@@ -177,4 +177,5 @@ Automation mechanics (Playwright, waits, selectors) stay in the executor layer; 
 - [Product requirements](product-requirements.md) — MVP scope; payment never automated.  
 - [User flow](user-flow.md) — End-to-end flow through handoff.  
 - [System design](system-design.md) — Modules and boundaries.  
-- Planned: [Latvian product matching](latvian-product-matching.md), [run summary](run-summary.md).
+- [Latvian product matching](latvian-product-matching.md) — discovery, matching, confidence, review thresholds.  
+- Planned: [run summary](run-summary.md).
