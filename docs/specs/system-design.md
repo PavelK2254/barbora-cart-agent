@@ -2,7 +2,7 @@
 
 ## Purpose and scope
 
-This document describes the **main modules and boundaries** for barbora-cart-agent at an architectural level. It is **not** an implementation guide: it avoids Playwright specifics, selectors, and persistence technology. It aligns with the [product requirements](product-requirements.md) and [user flow](user-flow.md). It does **not** define low-level data shapes (see the planned [data model](data-model.md) spec) or matching algorithms (see the planned [Latvian product matching](latvian-product-matching.md) spec).
+This document describes the **main modules and boundaries** for barbora-cart-agent at an architectural level. It is **not** an implementation guide: it avoids Playwright specifics, selectors, and persistence technology. It aligns with the [product requirements](product-requirements.md) and [user flow](user-flow.md). It does **not** define low-level data shapes (see the [data model](data-model.md) spec) or matching algorithms (see the planned [Latvian product matching](latvian-product-matching.md) spec).
 
 **Safety:** The system must **never** automate or complete payment. Automation stops at **checkout handoff**; the user pays manually on Barbora.
 
@@ -102,4 +102,5 @@ The **contract** between them is qualitative: the resolver supplies **unambiguou
 
 - [Product requirements](product-requirements.md) — MVP scope and constraints.
 - [User flow](user-flow.md) — End-to-end steps.
-- Planned: [data model](data-model.md), [Latvian product matching](latvian-product-matching.md), [run summary](run-summary.md).
+- [Data model](data-model.md) — MVP shapes for items, mappings, policy, and run outcomes.
+- Planned: [Latvian product matching](latvian-product-matching.md), [run summary](run-summary.md).
