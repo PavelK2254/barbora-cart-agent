@@ -70,7 +70,7 @@ flowchart TB
 
 ### Summary / reporting boundary
 
-**Responsibility:** A **conceptual** place where run results become visible: what was added, skipped, substituted (when that exists), or marked for review. It **aggregates** resolver outcomes and executor outcomes so the user (or logs) can see what happened. **Early MVP does not require a rich dashboard or detailed report format**—logging or a short console summary may suffice. A fuller, structured format is a separate concern (see planned [run summary](run-summary.md) spec, TASK-010 in the backlog).
+**Responsibility:** A **conceptual** place where run results become visible: what was added, skipped, substituted (when that exists), or marked for review. It **aggregates** resolver outcomes and executor outcomes so the user (or logs) can see what happened. **Early MVP does not require a rich dashboard or detailed report format**—logging or a short console summary may suffice. A fuller, structured format is specified in [run summary](run-summary.md) (TASK-010 in the backlog).
 
 **Inputs / outputs:** **In:** resolver-side results and executor-side results from the run. **Out:** user-visible or logged summary (format deferred).
 
@@ -104,4 +104,4 @@ The **contract** between them is qualitative: the resolver supplies **unambiguou
 - [User flow](user-flow.md) — End-to-end steps.
 - [Data model](data-model.md) — MVP shapes for items, mappings, policy, and run outcomes.
 - [Latvian product matching](latvian-product-matching.md) — MVP matching strategy for resolver-side decisions.  
-- Planned: [run summary](run-summary.md).
+- [Run summary](run-summary.md).

@@ -31,5 +31,5 @@ flowchart LR
 
 ## Out of scope for this flow document
 
-- Formal **run summary** or **output format** after a run (specified elsewhere, later).
+- Formal **run summary** or **output format** after a run (see [run summary](run-summary.md)).
 - **Matching** or **search algorithms** for Latvian vs other text.
