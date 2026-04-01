@@ -32,6 +32,14 @@ If the file is absent, `assertHasStorageState()` fails with instructions to run 
 
 v1 does **not** detect “still logged in.” If Barbora treats you as logged out, **run `npm run session:bootstrap` again** and overwrite the file.
 
+## Search spike (manual)
+
+To exercise Barbora product search and print structured candidates (no cart/checkout):
+
+`npm run spike:search -- --query "piens" --top 5`
+
+Uses the same optional storage state as above. Add `--headed` to watch the browser; add `--json` for machine-readable output.
+
 ## Payment
 
 Session reuse does **not** change the product rule: **never** automate payment. Checkout and payment stay manual on Barbora.
