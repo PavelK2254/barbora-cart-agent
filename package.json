@@ -9,7 +9,8 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "playwright:install": "playwright install",
-    "session:bootstrap": "npx tsx scripts/bootstrap-barbora-session.ts"
+    "session:bootstrap": "npx tsx scripts/bootstrap-barbora-session.ts",
+    "spike:search": "npx tsx scripts/search-spike.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",
