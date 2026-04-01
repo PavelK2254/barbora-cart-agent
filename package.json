@@ -11,7 +11,8 @@
     "playwright:install": "playwright install",
     "session:bootstrap": "npx tsx scripts/bootstrap-barbora-session.ts",
     "spike:search": "npx tsx scripts/search-spike.ts",
-    "spike:add-to-cart": "npx tsx scripts/add-to-cart-spike.ts"
+    "spike:add-to-cart": "npx tsx scripts/add-to-cart-spike.ts",
+    "spike:checkout-handoff": "npx tsx scripts/checkout-handoff-spike.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",
