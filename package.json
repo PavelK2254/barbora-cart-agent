@@ -8,11 +8,13 @@
   "scripts": {
     "test": "playwright test",
     "test:headed": "playwright test --headed",
-    "playwright:install": "playwright install"
+    "playwright:install": "playwright install",
+    "session:bootstrap": "npx tsx scripts/bootstrap-barbora-session.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",
     "@types/node": "^22.13.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
 }

@@ -1,3 +1,6 @@
+# Local Playwright storage state (cookies / localStorage); never commit.
+.auth/
+
 node_modules/
 playwright-report/
 test-results/
