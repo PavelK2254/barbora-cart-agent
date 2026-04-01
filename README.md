@@ -22,6 +22,7 @@ This project is **not** affiliated with Barbora. Barbora is a third-party servic
 
 ## Documentation
 
+- [Local Barbora session (dev)](docs/session-local-development.md) — save/reuse login for Playwright; not committed to git.
 - [Product requirements](docs/specs/product-requirements.md) — problem, MVP scope, non-goals, success criteria.
 - [User flow](docs/specs/user-flow.md) — input through checkout handoff.
 
