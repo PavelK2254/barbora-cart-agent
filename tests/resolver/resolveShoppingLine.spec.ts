@@ -7,6 +7,7 @@ import {
   RESOLVER_REASON_KNOWN_MAPPING,
   RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL,
   RESOLVER_REASON_NO_PRODUCT_URLS,
+  RESOLVER_REASON_PACK_CONFLICT_ALL,
   RESOLVER_REASON_QUERY_EMPTY_AFTER_NORMALIZE,
   RESOLVER_REASON_WEAK,
   resolveShoppingLine,
@@ -149,5 +150,77 @@ test('resolveShoppingLine knownProduct takes precedence over SERP candidates', (
   expect(r.decision).toBe('add');
   if (r.decision === 'add') {
     expect(r.candidate.productUrl).toBe('https://www.barbora.lv/right');
+  }
+});
+
+test('resolveShoppingLine does not match piens inside bezpiens (word tokens)', () => {
+  const r = resolveShoppingLine({
+    query: 'piens',
+    candidates: [c({ index: 1, title: 'Bezpiens', productUrl: 'https://a.lv/1' })],
+  });
+  expect(r.decision).toBe('review_needed');
+  expect(r.reason).toBe(RESOLVER_REASON_WEAK);
+});
+
+test('resolveShoppingLine prefers title pack volume matching query', () => {
+  const r = resolveShoppingLine({
+    query: 'piens 2 l',
+    candidates: [
+      c({ index: 1, title: 'Piens 1 l', productUrl: 'https://a.lv/1' }),
+      c({ index: 2, title: 'Piens 2 l', productUrl: 'https://a.lv/2' }),
+    ],
+  });
+  expect(r.decision).toBe('add');
+  if (r.decision === 'add') {
+    expect(r.candidate.index).toBe(2);
+  }
+});
+
+test('resolveShoppingLine returns PACK_CONFLICT_ALL when every candidate contradicts query pack', () => {
+  const r = resolveShoppingLine({
+    query: 'piens 2 l',
+    candidates: [
+      c({ index: 1, title: 'Piens 1 l', productUrl: 'https://a.lv/1' }),
+      c({ index: 2, title: 'Piens 1 l', productUrl: 'https://a.lv/2' }),
+    ],
+  });
+  expect(r.decision).toBe('review_needed');
+  expect(r.reason).toBe(RESOLVER_REASON_PACK_CONFLICT_ALL);
+});
+
+test('resolveShoppingLine ignores unit-price-like packSizeText', () => {
+  const r = resolveShoppingLine({
+    query: 'piens 2 l',
+    candidates: [
+      c({
+        index: 1,
+        title: 'Piens 2 l',
+        productUrl: 'https://a.lv/1',
+        packSizeText: '0,99€/l',
+      }),
+    ],
+  });
+  expect(r.decision).toBe('add');
+  if (r.decision === 'add') {
+    expect(r.candidate.index).toBe(1);
+  }
+});
+
+test('resolveShoppingLine applies gated packSizeText when it looks like pack size', () => {
+  const r = resolveShoppingLine({
+    query: 'tere piens 2 l',
+    candidates: [
+      c({
+        index: 1,
+        title: 'Tere piens',
+        productUrl: 'https://a.lv/1',
+        packSizeText: '2 l',
+      }),
+      c({ index: 2, title: 'Tere piens', productUrl: 'https://a.lv/2' }),
+    ],
+  });
+  expect(r.decision).toBe('add');
+  if (r.decision === 'add') {
+    expect(r.candidate.index).toBe(1);
   }
 });

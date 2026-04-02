@@ -1,17 +1,25 @@
 /**
- * Deterministic resolver v1: picks at most one SearchCandidate from Barbora SERP data.
+ * Deterministic resolver v2: picks at most one SearchCandidate from Barbora SERP data.
  *
- * Rules (read in order):
- * 1. Only candidates with a non-empty productUrl are considered.
- * 2. Text: lowercase, trim, collapse whitespace, replace non letter/number marks with spaces (Unicode-aware).
- * 3. Query tokens: split normalized query on spaces (empty segments dropped).
- * 4. Score per candidate title: if normalized full query is a substring of normalized title, score =
- *    QUERY_SUBSTRING_BONUS (1_000_000) + count of query tokens that appear as substrings in the title;
- *    else score = that token hit count only.
- * 5. If there are no usable candidates → review_needed.
- * 6. If the best score is 0 → review_needed (weak match).
- * 7. If more than one candidate shares the best score → review_needed (ambiguous).
- * 8. Otherwise → add the unique best-scoring candidate.
+ * Signal order (see named constants below; higher contribution wins when comparing candidates):
+ * 1. SCORE_PHRASE_BASE — normalized query equals a contiguous run of whole title tokens (avoids
+ *    substring matches inside unrelated words, e.g. `piens` inside `bezpiens`).
+ * 2. SCORE_PER_WORD_MATCH — each query token that exactly equals a title token (word boundary).
+ * 3. BONUS_PACK_HINT_MATCH / BONUS_PACK_HINT_FROM_CARD — query contains an explicit l/ml/kg/g hint
+ *    and the candidate title (or gated packSizeText) matches that hint.
+ * 4. PENALTY_PACK_HINT_CONFLICT — subtract SCORE_PHRASE_BASE when the candidate contradicts the
+ *    query’s pack hint (title primary; card text only when it passes isPackSizeLikePackSizeText).
+ *
+ * Rules after scoring:
+ * - Only candidates with a non-empty productUrl are considered.
+ * - Text normalization: normalizeForMatch (Unicode letter/number, lowercase, collapsed spaces).
+ * - Minimum coverage: if the query has ≥2 tokens and there is no phrase match on that candidate,
+ *   require ≥2 word-token hits; otherwise that candidate’s score is 0 (weak).
+ * - If there are no usable candidates → review_needed.
+ * - If the query has an explicit pack hint and every usable candidate contradicts it → review_needed.
+ * - If the best score is 0 → review_needed (weak).
+ * - If more than one candidate shares the best score (exact integer tie) → review_needed (ambiguous).
+ * - Otherwise → add the unique best-scoring candidate.
  *
  * Known mapping (optional): if `knownProduct` is present with a valid Barbora product URL,
  * returns `add` with a synthetic candidate immediately (before SERP rules). No LLM, no substitution.
@@ -19,6 +27,13 @@
 
 import { validateBarboraProductUrl } from '../barbora/validateBarboraProductUrl';
 import type { SearchCandidate } from '../executor/searchCandidate';
+import {
+  isPackSizeLikePackSizeText,
+  packHintsConflict,
+  packHintsEqual,
+  parsePrimaryPackHint,
+  type PackHint,
+} from './parsePackHints';
 import { normalizeForMatch } from './normalizeForMatch';
 
 export type SearchCandidateWithUrl = SearchCandidate & { productUrl: string };
@@ -40,8 +55,13 @@ export interface ResolveShoppingLineInput {
   knownProduct?: ResolveShoppingLineKnownProduct;
 }
 
-/** Separates full-query substring matches from token-only scores. */
-const QUERY_SUBSTRING_BONUS = 1_000_000;
+/** Phrase tier dominates token-only scores; penalty uses the same magnitude to cancel it on conflict. */
+const SCORE_PHRASE_BASE = 1_000_000;
+const SCORE_PER_WORD_MATCH = 100;
+const BONUS_PACK_HINT_MATCH = 40;
+/** When title has no pack hint but gated card text matches query pack (conservative gate). */
+const BONUS_PACK_HINT_FROM_CARD = 12;
+const PENALTY_PACK_HINT_CONFLICT = SCORE_PHRASE_BASE;
 
 export const RESOLVER_REASON_ADD = 'Best match: title overlap with your search.';
 export const RESOLVER_REASON_AMBIGUOUS = 'Several equally good matches; choose on Barbora.';
@@ -54,20 +74,98 @@ export const RESOLVER_REASON_KNOWN_MAPPING =
   'Using saved Barbora product link for this list line (known-mappings.json).';
 export const RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL =
   'Saved product link is not a valid Barbora URL; cannot use known mapping.';
+export const RESOLVER_REASON_PACK_CONFLICT_ALL =
+  'Pack size in results does not match your search; choose on Barbora.';
 
 function queryTokens(normalizedQuery: string): string[] {
   return normalizedQuery.split(' ').filter((t) => t.length > 0);
 }
 
-function scoreTitle(normalizedQuery: string, tokens: string[], normalizedTitle: string): number {
-  let tokenHits = 0;
-  for (const t of tokens) {
-    if (normalizedTitle.includes(t)) tokenHits += 1;
+function titleWordTokens(normalizedTitle: string): string[] {
+  return normalizedTitle.split(' ').filter((t) => t.length > 0);
+}
+
+function countWordTokenMatches(queryToks: string[], titleToks: string[]): number {
+  const set = new Set(titleToks);
+  let n = 0;
+  for (const t of queryToks) {
+    if (set.has(t)) n += 1;
   }
-  if (normalizedQuery.length > 0 && normalizedTitle.includes(normalizedQuery)) {
-    return QUERY_SUBSTRING_BONUS + tokenHits;
+  return n;
+}
+
+/** True when normalized query equals joining a contiguous slice of title tokens. */
+function hasPhraseMatch(normalizedQuery: string, titleToks: string[]): boolean {
+  if (normalizedQuery.length === 0) return false;
+  const n = titleToks.length;
+  for (let i = 0; i < n; i++) {
+    let acc = titleToks[i]!;
+    if (acc === normalizedQuery) return true;
+    for (let j = i + 1; j < n; j++) {
+      acc += ' ' + titleToks[j]!;
+      if (acc === normalizedQuery) return true;
+    }
   }
-  return tokenHits;
+  return false;
+}
+
+function candidateConflictsWithQueryPack(
+  queryHint: PackHint,
+  titleNorm: string,
+  packSizeText: string | null,
+): boolean {
+  const titleHint = parsePrimaryPackHint(titleNorm);
+  if (titleHint != null) {
+    return packHintsConflict(queryHint, titleHint);
+  }
+  if (!isPackSizeLikePackSizeText(packSizeText)) return false;
+  const gatedHint = parsePrimaryPackHint(normalizeForMatch(packSizeText!));
+  if (gatedHint == null) return false;
+  return packHintsConflict(queryHint, gatedHint);
+}
+
+function scoreCandidate(
+  normalizedQuery: string,
+  queryToks: string[],
+  queryHint: PackHint | null,
+  titleNorm: string,
+  packSizeText: string | null,
+): number {
+  const titleToks = titleWordTokens(titleNorm);
+  const phrase = hasPhraseMatch(normalizedQuery, titleToks);
+  const wordMatches = countWordTokenMatches(queryToks, titleToks);
+
+  if (queryToks.length >= 2 && !phrase && wordMatches < 2) {
+    return 0;
+  }
+
+  let score = phrase ? SCORE_PHRASE_BASE : 0;
+  score += wordMatches * SCORE_PER_WORD_MATCH;
+
+  const titleHint = parsePrimaryPackHint(titleNorm);
+
+  let packBonus = 0;
+  let packPenalty = 0;
+  if (queryHint != null) {
+    if (titleHint != null) {
+      if (packHintsConflict(queryHint, titleHint)) {
+        packPenalty = PENALTY_PACK_HINT_CONFLICT;
+      } else if (packHintsEqual(queryHint, titleHint)) {
+        packBonus += BONUS_PACK_HINT_MATCH;
+      }
+    } else if (isPackSizeLikePackSizeText(packSizeText)) {
+      const gatedHint = parsePrimaryPackHint(normalizeForMatch(packSizeText!));
+      if (gatedHint != null) {
+        if (packHintsConflict(queryHint, gatedHint)) {
+          packPenalty = PENALTY_PACK_HINT_CONFLICT;
+        } else if (packHintsEqual(queryHint, gatedHint)) {
+          packBonus += BONUS_PACK_HINT_FROM_CARD;
+        }
+      }
+    }
+  }
+
+  return score + packBonus - packPenalty;
 }
 
 function usableCandidates(candidates: SearchCandidate[]): SearchCandidateWithUrl[] {
@@ -106,20 +204,43 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
     return { decision: 'add', candidate, reason: RESOLVER_REASON_KNOWN_MAPPING };
   }
 
-  const tokens = queryTokens(normalizedQuery);
+  const queryToks = queryTokens(normalizedQuery);
+  const queryHint = parsePrimaryPackHint(normalizedQuery);
   const usable = usableCandidates(input.candidates);
   if (usable.length === 0) {
     return { decision: 'review_needed', reason: RESOLVER_REASON_NO_PRODUCT_URLS };
   }
 
+  if (queryHint != null) {
+    const allConflict = usable.every((c) =>
+      candidateConflictsWithQueryPack(queryHint, normalizeForMatch(c.title), c.packSizeText),
+    );
+    if (allConflict) {
+      return { decision: 'review_needed', reason: RESOLVER_REASON_PACK_CONFLICT_ALL };
+    }
+  }
+
   const scored = usable.map((candidate) => ({
     candidate,
-    score: scoreTitle(normalizedQuery, tokens, normalizeForMatch(candidate.title)),
+    score: scoreCandidate(
+      normalizedQuery,
+      queryToks,
+      queryHint,
+      normalizeForMatch(candidate.title),
+      candidate.packSizeText,
+    ),
   }));
 
   let best = scored[0]!.score;
   for (const row of scored) {
     if (row.score > best) best = row.score;
+  }
+
+  if (best < 0) {
+    return {
+      decision: 'review_needed',
+      reason: queryHint != null ? RESOLVER_REASON_PACK_CONFLICT_ALL : RESOLVER_REASON_WEAK,
+    };
   }
 
   if (best === 0) {
