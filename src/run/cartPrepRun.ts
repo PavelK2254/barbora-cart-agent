@@ -1,8 +1,13 @@
+import * as path from 'node:path';
+
 import type { Page } from '@playwright/test';
 
+import { validateBarboraProductUrl } from '../barbora/validateBarboraProductUrl';
 import { runBarboraAddToCartSpike } from '../executor/barboraAddToCartSpike';
 import { runBarboraCheckoutHandoffSpike } from '../executor/barboraCheckoutHandoffSpike';
 import { runBarboraSearchAndCollect } from '../executor/barboraSearchSpike';
+import { findMappingForNormalizedQuery, loadKnownMappingsFromFile } from '../mappings/knownMappings';
+import { normalizeForMatch } from '../resolver/normalizeForMatch';
 import { resolveShoppingLine } from '../resolver/resolveShoppingLine';
 import type { RunLineResult, RunResultSummary } from './runTypes';
 
@@ -18,6 +23,11 @@ export interface CartPrepRunOptions {
   topN: number;
   /** If true, run checkout handoff after all lines (still no payment). */
   attemptHandoff: boolean;
+  /**
+   * known-mappings.json path (relative to cwd unless absolute). Default: known-mappings.json in cwd.
+   * Missing file loads as empty mappings.
+   */
+  knownMappingsPath?: string;
 }
 
 const SEARCH_ERR = '[barbora-search-spike]';
@@ -31,7 +41,8 @@ function outcomeFromSearchFailure(message: string): RunLineResult['outcome'] {
 }
 
 /**
- * Sequential cart prep: search → deterministic resolver → add. Optional checkout handoff at the end.
+ * Sequential cart prep: optional known-mapping lookup → search (if needed) → resolver → add.
+ * Optional checkout handoff at the end.
  */
 export async function runCartPrepRun(
   page: Page,
@@ -40,6 +51,8 @@ export async function runCartPrepRun(
 ): Promise<RunResultSummary> {
   const lineResults: RunLineResult[] = [];
   const topN = Math.max(1, options.topN);
+  const mappingsFile = path.resolve(process.cwd(), options.knownMappingsPath ?? 'known-mappings.json');
+  const mappingStore = loadKnownMappingsFromFile(mappingsFile);
 
   for (const line of inputLines) {
     const q = line.query.trim();
@@ -53,13 +66,42 @@ export async function runCartPrepRun(
     }
 
     try {
-      const candidates = await runBarboraSearchAndCollect(page, { query: q, topN });
-      const resolved = resolveShoppingLine({ query: q, candidates });
+      const normalizedQuery = normalizeForMatch(q);
+      const mappingHit = findMappingForNormalizedQuery(mappingStore, normalizedQuery);
+
+      let mappingFallbackNote: string | undefined;
+      let resolved;
+
+      if (mappingHit != null) {
+        const urlCheck = validateBarboraProductUrl(mappingHit.barboraProductRef);
+        if (urlCheck.ok) {
+          resolved = resolveShoppingLine({
+            query: q,
+            candidates: [],
+            knownProduct: {
+              productUrl: urlCheck.productUrl,
+              displayName: mappingHit.displayName,
+            },
+          });
+        } else {
+          mappingFallbackNote = `Saved product link is invalid; used Barbora search instead. (${urlCheck.message})`;
+          console.error(
+            `[known-mappings] line ${line.lineId} (${q.slice(0, 80)}): ${mappingFallbackNote}`,
+          );
+          const candidates = await runBarboraSearchAndCollect(page, { query: q, topN });
+          resolved = resolveShoppingLine({ query: q, candidates });
+        }
+      } else {
+        const candidates = await runBarboraSearchAndCollect(page, { query: q, topN });
+        resolved = resolveShoppingLine({ query: q, candidates });
+      }
+
       if (resolved.decision === 'review_needed') {
+        const userMessage = [mappingFallbackNote, resolved.reason].filter(Boolean).join(' ');
         lineResults.push({
           lineId: line.lineId,
           outcome: 'review_needed',
-          userMessage: resolved.reason,
+          userMessage,
         });
         continue;
       }
@@ -67,12 +109,13 @@ export async function runCartPrepRun(
       const addResult = await runBarboraAddToCartSpike(page, {
         productUrl: resolved.candidate.productUrl,
       });
+      const addMsg = `${resolved.reason} ${addResult.message}`.trim();
       lineResults.push({
         lineId: line.lineId,
         outcome: 'added',
         barboraLabel: resolved.candidate.title,
         quantityAdded: 1,
-        userMessage: `${resolved.reason} ${addResult.message}`.trim(),
+        userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

@@ -14,6 +14,7 @@ function parseArgs(argv: string[]): {
   handoff: boolean;
   headed: boolean;
   json: boolean;
+  knownMappingsPath: string;
 } {
   const queries: string[] = [];
   let filePath = '';
@@ -21,6 +22,7 @@ function parseArgs(argv: string[]): {
   let handoff = false;
   let headed = false;
   let json = false;
+  let knownMappingsPath = 'known-mappings.json';
   const rest = [...argv];
   while (rest.length > 0) {
     const a = rest.shift()!;
@@ -52,17 +54,27 @@ function parseArgs(argv: string[]): {
       json = true;
       continue;
     }
+    if (a === '--known-mappings') {
+      knownMappingsPath = (rest.shift() ?? '').trim();
+      if (!knownMappingsPath) {
+        console.error('[cart-prep-run] --known-mappings requires a path');
+        printHelp();
+        process.exit(1);
+      }
+      continue;
+    }
     console.error(`Unknown argument: ${a}`);
     printHelp();
     process.exit(1);
   }
-  return { queries, filePath, topN, handoff, headed, json };
+  return { queries, filePath, topN, handoff, headed, json, knownMappingsPath };
 }
 
 function printHelp(): void {
   console.log(`Usage: npx tsx scripts/cart-prep-run.ts [options]
 
-Orchestrated cart-prep (MVP): for each line, search Barbora, pick one product by deterministic title overlap, add to cart.
+Orchestrated cart-prep (MVP): for each line, use known-mappings.json when it matches, else search Barbora,
+pick one product by deterministic title overlap, add to cart.
 Checkout handoff is optional and off by default (no payment automation).
 
 Input (combine as needed):
@@ -74,6 +86,7 @@ Options:
       --handoff        After all lines, navigate toward checkout (still stops before payment)
       --headed         Show browser window
       --json           Print RunResultSummary JSON to stdout
+      --known-mappings <path>  Known product mappings JSON (default: known-mappings.json in cwd; missing = no mappings)
   -h, --help           This message
 
 Exit codes:
@@ -104,7 +117,9 @@ function buildInputLines(queriesFromFlags: string[], fileQueries: string[]): Car
 }
 
 async function main(): Promise<void> {
-  const { queries, filePath, topN, handoff, headed, json } = parseArgs(process.argv.slice(2));
+  const { queries, filePath, topN, handoff, headed, json, knownMappingsPath } = parseArgs(
+    process.argv.slice(2),
+  );
 
   let fileQueries: string[] = [];
   if (filePath) {
@@ -153,6 +168,7 @@ async function main(): Promise<void> {
     const summary = await runCartPrepRun(page, inputLines, {
       topN,
       attemptHandoff: handoff,
+      knownMappingsPath,
     });
 
     if (json) {

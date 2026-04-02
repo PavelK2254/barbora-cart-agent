@@ -12,6 +12,8 @@
 import { expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
+import { validateBarboraProductUrl } from '../barbora/validateBarboraProductUrl';
+
 const ERR = '[barbora-add-to-cart-spike]';
 
 const NAV_TIMEOUT_MS = 60_000;
@@ -33,28 +35,9 @@ export interface AddToCartSpikeResult {
 }
 
 function assertValidBarboraProductUrl(url: string): void {
-  const trimmed = url.trim();
-  if (!trimmed) {
-    throw new Error(
-      `${ERR} missing product URL. Pass a full https URL to a Barbora product page (path under /produkti/ or equivalent), e.g. https://www.barbora.lv/produkti/....`,
-    );
-  }
-  let u: URL;
-  try {
-    u = new URL(trimmed);
-  } catch {
-    throw new Error(`${ERR} invalid product URL (not a valid URL string): ${url.slice(0, 200)}`);
-  }
-  if (u.protocol !== 'https:') {
-    throw new Error(
-      `${ERR} invalid Barbora product URL: only https is supported. Got ${u.protocol}//${u.host}. Use https://www.barbora.lv/... or https://barbora.lv/....`,
-    );
-  }
-  const host = u.hostname.toLowerCase();
-  if (host !== 'barbora.lv' && host !== 'www.barbora.lv') {
-    throw new Error(
-      `${ERR} invalid Barbora product URL: hostname must be barbora.lv or www.barbora.lv. Got: ${u.hostname}`,
-    );
+  const r = validateBarboraProductUrl(url);
+  if (!r.ok) {
+    throw new Error(`${ERR} ${r.message}`);
   }
 }
 
