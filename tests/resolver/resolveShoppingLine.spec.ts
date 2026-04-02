@@ -2,14 +2,13 @@ import { expect, test } from '@playwright/test';
 
 import type { SearchCandidate } from '../../src/executor/searchCandidate';
 import {
-  RESOLVER_REASON_ADD,
-  RESOLVER_REASON_AMBIGUOUS,
-  RESOLVER_REASON_KNOWN_MAPPING,
-  RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL,
-  RESOLVER_REASON_NO_PRODUCT_URLS,
-  RESOLVER_REASON_PACK_CONFLICT_ALL,
-  RESOLVER_REASON_QUERY_EMPTY_AFTER_NORMALIZE,
-  RESOLVER_REASON_WEAK,
+  RESOLVER_REVIEW_DETAIL_AMBIGUOUS,
+  RESOLVER_REVIEW_DETAIL_KNOWN_MAPPING_INVALID,
+  RESOLVER_REVIEW_DETAIL_NO_CANDIDATES,
+  RESOLVER_REVIEW_DETAIL_NO_USABLE_CANDIDATES,
+  RESOLVER_REVIEW_DETAIL_PACK_CONFLICT,
+  RESOLVER_REVIEW_DETAIL_QUERY_EMPTY,
+  RESOLVER_REVIEW_DETAIL_WEAK,
   resolveShoppingLine,
 } from '../../src/resolver/resolveShoppingLine';
 
@@ -27,10 +26,22 @@ function c(
 test('resolveShoppingLine returns review_needed when query normalizes to empty', () => {
   const r = resolveShoppingLine({ query: '...', candidates: [] });
   expect(r.decision).toBe('review_needed');
-  expect(r.reason).toBe(RESOLVER_REASON_QUERY_EMPTY_AFTER_NORMALIZE);
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('query_empty');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_QUERY_EMPTY);
+  }
 });
 
-test('resolveShoppingLine returns review_needed when no candidate has productUrl', () => {
+test('resolveShoppingLine returns review_needed no_candidates when SERP list is empty', () => {
+  const r = resolveShoppingLine({ query: 'piens', candidates: [] });
+  expect(r.decision).toBe('review_needed');
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('no_candidates');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_NO_CANDIDATES);
+  }
+});
+
+test('resolveShoppingLine returns review_needed no_usable_candidates when no candidate has productUrl', () => {
   const r = resolveShoppingLine({
     query: 'piens',
     candidates: [
@@ -39,7 +50,10 @@ test('resolveShoppingLine returns review_needed when no candidate has productUrl
     ],
   });
   expect(r.decision).toBe('review_needed');
-  expect(r.reason).toBe(RESOLVER_REASON_NO_PRODUCT_URLS);
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('no_usable_candidates');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_NO_USABLE_CANDIDATES);
+  }
 });
 
 test('resolveShoppingLine ignores candidates without URL when scoring others', () => {
@@ -53,7 +67,6 @@ test('resolveShoppingLine ignores candidates without URL when scoring others', (
   expect(r.decision).toBe('add');
   if (r.decision === 'add') {
     expect(r.candidate.index).toBe(2);
-    expect(r.reason).toBe(RESOLVER_REASON_ADD);
   }
 });
 
@@ -63,7 +76,10 @@ test('resolveShoppingLine returns review_needed when best score is zero', () => 
     candidates: [c({ index: 1, title: 'Completely different product', productUrl: 'https://a.lv/p' })],
   });
   expect(r.decision).toBe('review_needed');
-  expect(r.reason).toBe(RESOLVER_REASON_WEAK);
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('weak_match');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_WEAK);
+  }
 });
 
 test('resolveShoppingLine returns review_needed on tie for top score', () => {
@@ -75,7 +91,10 @@ test('resolveShoppingLine returns review_needed on tie for top score', () => {
     ],
   });
   expect(r.decision).toBe('review_needed');
-  expect(r.reason).toBe(RESOLVER_REASON_AMBIGUOUS);
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('ambiguous_match');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_AMBIGUOUS);
+  }
 });
 
 test('resolveShoppingLine picks unique best by token overlap', () => {
@@ -127,7 +146,6 @@ test('resolveShoppingLine uses knownProduct when URL is valid Barbora https', ()
   if (r.decision === 'add') {
     expect(r.candidate.productUrl).toBe(url);
     expect(r.candidate.title).toBe('My piens');
-    expect(r.reason).toBe(RESOLVER_REASON_KNOWN_MAPPING);
   }
 });
 
@@ -138,7 +156,10 @@ test('resolveShoppingLine knownProduct invalid host yields review_needed', () =>
     knownProduct: { productUrl: 'https://evil.com/p' },
   });
   expect(r.decision).toBe('review_needed');
-  expect(r.reason).toBe(RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL);
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('known_mapping_invalid');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_KNOWN_MAPPING_INVALID);
+  }
 });
 
 test('resolveShoppingLine knownProduct takes precedence over SERP candidates', () => {
@@ -159,7 +180,10 @@ test('resolveShoppingLine does not match piens inside bezpiens (word tokens)', (
     candidates: [c({ index: 1, title: 'Bezpiens', productUrl: 'https://a.lv/1' })],
   });
   expect(r.decision).toBe('review_needed');
-  expect(r.reason).toBe(RESOLVER_REASON_WEAK);
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('weak_match');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_WEAK);
+  }
 });
 
 test('resolveShoppingLine prefers title pack volume matching query', () => {
@@ -176,7 +200,7 @@ test('resolveShoppingLine prefers title pack volume matching query', () => {
   }
 });
 
-test('resolveShoppingLine returns PACK_CONFLICT_ALL when every candidate contradicts query pack', () => {
+test('resolveShoppingLine returns pack_conflict when every candidate contradicts query pack', () => {
   const r = resolveShoppingLine({
     query: 'piens 2 l',
     candidates: [
@@ -185,7 +209,10 @@ test('resolveShoppingLine returns PACK_CONFLICT_ALL when every candidate contrad
     ],
   });
   expect(r.decision).toBe('review_needed');
-  expect(r.reason).toBe(RESOLVER_REASON_PACK_CONFLICT_ALL);
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('pack_conflict');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_PACK_CONFLICT);
+  }
 });
 
 test('resolveShoppingLine ignores unit-price-like packSizeText', () => {
