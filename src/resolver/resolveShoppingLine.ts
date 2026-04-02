@@ -23,6 +23,8 @@
  *
  * Known mapping (optional): if `knownProduct` is present with a valid Barbora product URL,
  * returns `add` with a synthetic candidate immediately (before SERP rules). No LLM, no substitution.
+ *
+ * `review_needed` carries stable `reasonCode` (machine) and `detail` (internal / tests; not user copy).
  */
 
 import { validateBarboraProductUrl } from '../barbora/validateBarboraProductUrl';
@@ -38,9 +40,19 @@ import { normalizeForMatch } from './normalizeForMatch';
 
 export type SearchCandidateWithUrl = SearchCandidate & { productUrl: string };
 
+/** Stable, boring codes for review_needed; user-facing text lives in cart-prep. */
+export type ResolverReviewReasonCode =
+  | 'query_empty'
+  | 'known_mapping_invalid'
+  | 'no_candidates'
+  | 'no_usable_candidates'
+  | 'pack_conflict'
+  | 'weak_match'
+  | 'ambiguous_match';
+
 export type ResolveShoppingLineResult =
-  | { decision: 'add'; candidate: SearchCandidateWithUrl; reason: string }
-  | { decision: 'review_needed'; reason: string };
+  | { decision: 'add'; candidate: SearchCandidateWithUrl }
+  | { decision: 'review_needed'; reasonCode: ResolverReviewReasonCode; detail: string };
 
 export interface ResolveShoppingLineKnownProduct {
   productUrl: string;
@@ -63,19 +75,20 @@ const BONUS_PACK_HINT_MATCH = 40;
 const BONUS_PACK_HINT_FROM_CARD = 12;
 const PENALTY_PACK_HINT_CONFLICT = SCORE_PHRASE_BASE;
 
-export const RESOLVER_REASON_ADD = 'Best match: title overlap with your search.';
-export const RESOLVER_REASON_AMBIGUOUS = 'Several equally good matches; choose on Barbora.';
-export const RESOLVER_REASON_WEAK = 'No strong title match; refine search or choose on Barbora.';
-export const RESOLVER_REASON_NO_PRODUCT_URLS =
-  'No product links in search results; choose on Barbora.';
-export const RESOLVER_REASON_QUERY_EMPTY_AFTER_NORMALIZE =
+/** Internal explanations for review_needed (tests, logs); not shown to end users. */
+export const RESOLVER_REVIEW_DETAIL_QUERY_EMPTY =
   'Search text is empty after cleanup; try a clearer product name.';
-export const RESOLVER_REASON_KNOWN_MAPPING =
-  'Using saved Barbora product link for this list line (known-mappings.json).';
-export const RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL =
+export const RESOLVER_REVIEW_DETAIL_KNOWN_MAPPING_INVALID =
   'Saved product link is not a valid Barbora URL; cannot use known mapping.';
-export const RESOLVER_REASON_PACK_CONFLICT_ALL =
+export const RESOLVER_REVIEW_DETAIL_NO_CANDIDATES = 'No search result rows were provided.';
+export const RESOLVER_REVIEW_DETAIL_NO_USABLE_CANDIDATES =
+  'No product links in search results; choose on Barbora.';
+export const RESOLVER_REVIEW_DETAIL_PACK_CONFLICT =
   'Pack size in results does not match your search; choose on Barbora.';
+export const RESOLVER_REVIEW_DETAIL_WEAK =
+  'No strong title match; refine search or choose on Barbora.';
+export const RESOLVER_REVIEW_DETAIL_AMBIGUOUS =
+  'Several equally good matches; choose on Barbora.';
 
 function queryTokens(normalizedQuery: string): string[] {
   return normalizedQuery.split(' ').filter((t) => t.length > 0);
@@ -182,13 +195,21 @@ function usableCandidates(candidates: SearchCandidate[]): SearchCandidateWithUrl
 export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveShoppingLineResult {
   const normalizedQuery = normalizeForMatch(input.query);
   if (normalizedQuery.length === 0) {
-    return { decision: 'review_needed', reason: RESOLVER_REASON_QUERY_EMPTY_AFTER_NORMALIZE };
+    return {
+      decision: 'review_needed',
+      reasonCode: 'query_empty',
+      detail: RESOLVER_REVIEW_DETAIL_QUERY_EMPTY,
+    };
   }
 
   if (input.knownProduct != null) {
     const urlResult = validateBarboraProductUrl(input.knownProduct.productUrl);
     if (!urlResult.ok) {
-      return { decision: 'review_needed', reason: RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL };
+      return {
+        decision: 'review_needed',
+        reasonCode: 'known_mapping_invalid',
+        detail: RESOLVER_REVIEW_DETAIL_KNOWN_MAPPING_INVALID,
+      };
     }
     const title =
       input.knownProduct.displayName != null && input.knownProduct.displayName.trim().length > 0
@@ -201,14 +222,25 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
       priceText: null,
       packSizeText: null,
     };
-    return { decision: 'add', candidate, reason: RESOLVER_REASON_KNOWN_MAPPING };
+    return { decision: 'add', candidate };
   }
 
   const queryToks = queryTokens(normalizedQuery);
   const queryHint = parsePrimaryPackHint(normalizedQuery);
   const usable = usableCandidates(input.candidates);
   if (usable.length === 0) {
-    return { decision: 'review_needed', reason: RESOLVER_REASON_NO_PRODUCT_URLS };
+    if (input.candidates.length === 0) {
+      return {
+        decision: 'review_needed',
+        reasonCode: 'no_candidates',
+        detail: RESOLVER_REVIEW_DETAIL_NO_CANDIDATES,
+      };
+    }
+    return {
+      decision: 'review_needed',
+      reasonCode: 'no_usable_candidates',
+      detail: RESOLVER_REVIEW_DETAIL_NO_USABLE_CANDIDATES,
+    };
   }
 
   if (queryHint != null) {
@@ -216,7 +248,11 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
       candidateConflictsWithQueryPack(queryHint, normalizeForMatch(c.title), c.packSizeText),
     );
     if (allConflict) {
-      return { decision: 'review_needed', reason: RESOLVER_REASON_PACK_CONFLICT_ALL };
+      return {
+        decision: 'review_needed',
+        reasonCode: 'pack_conflict',
+        detail: RESOLVER_REVIEW_DETAIL_PACK_CONFLICT,
+      };
     }
   }
 
@@ -239,22 +275,30 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
   if (best < 0) {
     return {
       decision: 'review_needed',
-      reason: queryHint != null ? RESOLVER_REASON_PACK_CONFLICT_ALL : RESOLVER_REASON_WEAK,
+      reasonCode: queryHint != null ? 'pack_conflict' : 'weak_match',
+      detail: queryHint != null ? RESOLVER_REVIEW_DETAIL_PACK_CONFLICT : RESOLVER_REVIEW_DETAIL_WEAK,
     };
   }
 
   if (best === 0) {
-    return { decision: 'review_needed', reason: RESOLVER_REASON_WEAK };
+    return {
+      decision: 'review_needed',
+      reasonCode: 'weak_match',
+      detail: RESOLVER_REVIEW_DETAIL_WEAK,
+    };
   }
 
   const atBest = scored.filter((row) => row.score === best);
   if (atBest.length !== 1) {
-    return { decision: 'review_needed', reason: RESOLVER_REASON_AMBIGUOUS };
+    return {
+      decision: 'review_needed',
+      reasonCode: 'ambiguous_match',
+      detail: RESOLVER_REVIEW_DETAIL_AMBIGUOUS,
+    };
   }
 
   return {
     decision: 'add',
     candidate: atBest[0]!.candidate,
-    reason: RESOLVER_REASON_ADD,
   };
 }

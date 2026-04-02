@@ -4,6 +4,8 @@
  * This slice emits only added | skipped | review_needed (no substituted until real substitution exists).
  */
 
+import type { ResolverReviewReasonCode } from '../resolver/resolveShoppingLine';
+
 export type LineOutcome = 'added' | 'skipped' | 'review_needed';
 
 export interface RunLineResult {
@@ -12,6 +14,8 @@ export interface RunLineResult {
   userMessage: string;
   barboraLabel?: string;
   quantityAdded?: number;
+  /** Set only when outcome is review_needed from the deterministic resolver (not search/executor errors). */
+  reviewReasonCode?: ResolverReviewReasonCode;
 }
 
 export interface RunResultSummary {

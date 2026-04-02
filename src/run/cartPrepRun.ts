@@ -9,6 +9,11 @@ import { runBarboraSearchAndCollect } from '../executor/barboraSearchSpike';
 import { findMappingForNormalizedQuery, loadKnownMappingsFromFile } from '../mappings/knownMappings';
 import { normalizeForMatch } from '../resolver/normalizeForMatch';
 import { resolveShoppingLine } from '../resolver/resolveShoppingLine';
+import {
+  USER_MESSAGE_ADD_FROM_KNOWN_MAPPING,
+  USER_MESSAGE_ADD_FROM_SEARCH,
+  userMessageForResolverReviewReason,
+} from './reviewReasonUserMessages';
 import type { RunLineResult, RunResultSummary } from './runTypes';
 
 export interface CartPrepInputLine {
@@ -70,11 +75,13 @@ export async function runCartPrepRun(
       const mappingHit = findMappingForNormalizedQuery(mappingStore, normalizedQuery);
 
       let mappingFallbackNote: string | undefined;
+      let resolvedFromKnownMapping = false;
       let resolved;
 
       if (mappingHit != null) {
         const urlCheck = validateBarboraProductUrl(mappingHit.barboraProductRef);
         if (urlCheck.ok) {
+          resolvedFromKnownMapping = true;
           resolved = resolveShoppingLine({
             query: q,
             candidates: [],
@@ -97,11 +104,13 @@ export async function runCartPrepRun(
       }
 
       if (resolved.decision === 'review_needed') {
-        const userMessage = [mappingFallbackNote, resolved.reason].filter(Boolean).join(' ');
+        const reviewText = userMessageForResolverReviewReason(resolved.reasonCode);
+        const userMessage = [mappingFallbackNote, reviewText].filter(Boolean).join(' ');
         lineResults.push({
           lineId: line.lineId,
           outcome: 'review_needed',
           userMessage,
+          reviewReasonCode: resolved.reasonCode,
         });
         continue;
       }
@@ -109,7 +118,10 @@ export async function runCartPrepRun(
       const addResult = await runBarboraAddToCartSpike(page, {
         productUrl: resolved.candidate.productUrl,
       });
-      const addMsg = `${resolved.reason} ${addResult.message}`.trim();
+      const addPrefix = resolvedFromKnownMapping
+        ? USER_MESSAGE_ADD_FROM_KNOWN_MAPPING
+        : USER_MESSAGE_ADD_FROM_SEARCH;
+      const addMsg = `${addPrefix} ${addResult.message}`.trim();
       lineResults.push({
         lineId: line.lineId,
         outcome: 'added',
