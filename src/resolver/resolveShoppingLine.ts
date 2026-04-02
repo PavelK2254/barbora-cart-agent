@@ -13,10 +13,13 @@
  * 7. If more than one candidate shares the best score → review_needed (ambiguous).
  * 8. Otherwise → add the unique best-scoring candidate.
  *
- * No Playwright, no LLM, no mappings, no substitution.
+ * Known mapping (optional): if `knownProduct` is present with a valid Barbora product URL,
+ * returns `add` with a synthetic candidate immediately (before SERP rules). No LLM, no substitution.
  */
 
+import { validateBarboraProductUrl } from '../barbora/validateBarboraProductUrl';
 import type { SearchCandidate } from '../executor/searchCandidate';
+import { normalizeForMatch } from './normalizeForMatch';
 
 export type SearchCandidateWithUrl = SearchCandidate & { productUrl: string };
 
@@ -24,9 +27,17 @@ export type ResolveShoppingLineResult =
   | { decision: 'add'; candidate: SearchCandidateWithUrl; reason: string }
   | { decision: 'review_needed'; reason: string };
 
+export interface ResolveShoppingLineKnownProduct {
+  productUrl: string;
+  /** Shown as candidate title / barboraLabel when not from SERP */
+  displayName?: string;
+}
+
 export interface ResolveShoppingLineInput {
   query: string;
   candidates: SearchCandidate[];
+  /** When set and URL is valid, skips SERP candidate selection */
+  knownProduct?: ResolveShoppingLineKnownProduct;
 }
 
 /** Separates full-query substring matches from token-only scores. */
@@ -39,15 +50,10 @@ export const RESOLVER_REASON_NO_PRODUCT_URLS =
   'No product links in search results; choose on Barbora.';
 export const RESOLVER_REASON_QUERY_EMPTY_AFTER_NORMALIZE =
   'Search text is empty after cleanup; try a clearer product name.';
-
-function normalizeForMatch(text: string): string {
-  return text
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+export const RESOLVER_REASON_KNOWN_MAPPING =
+  'Using saved Barbora product link for this list line (known-mappings.json).';
+export const RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL =
+  'Saved product link is not a valid Barbora URL; cannot use known mapping.';
 
 function queryTokens(normalizedQuery: string): string[] {
   return normalizedQuery.split(' ').filter((t) => t.length > 0);
@@ -79,6 +85,25 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
   const normalizedQuery = normalizeForMatch(input.query);
   if (normalizedQuery.length === 0) {
     return { decision: 'review_needed', reason: RESOLVER_REASON_QUERY_EMPTY_AFTER_NORMALIZE };
+  }
+
+  if (input.knownProduct != null) {
+    const urlResult = validateBarboraProductUrl(input.knownProduct.productUrl);
+    if (!urlResult.ok) {
+      return { decision: 'review_needed', reason: RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL };
+    }
+    const title =
+      input.knownProduct.displayName != null && input.knownProduct.displayName.trim().length > 0
+        ? input.knownProduct.displayName.trim()
+        : '(known mapping)';
+    const candidate: SearchCandidateWithUrl = {
+      index: 0,
+      title,
+      productUrl: urlResult.productUrl,
+      priceText: null,
+      packSizeText: null,
+    };
+    return { decision: 'add', candidate, reason: RESOLVER_REASON_KNOWN_MAPPING };
   }
 
   const tokens = queryTokens(normalizedQuery);

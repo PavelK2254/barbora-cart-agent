@@ -4,6 +4,8 @@ import type { SearchCandidate } from '../../src/executor/searchCandidate';
 import {
   RESOLVER_REASON_ADD,
   RESOLVER_REASON_AMBIGUOUS,
+  RESOLVER_REASON_KNOWN_MAPPING,
+  RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL,
   RESOLVER_REASON_NO_PRODUCT_URLS,
   RESOLVER_REASON_QUERY_EMPTY_AFTER_NORMALIZE,
   RESOLVER_REASON_WEAK,
@@ -111,4 +113,41 @@ test('resolveShoppingLine is deterministic for same input', () => {
   const a = resolveShoppingLine(input);
   const b = resolveShoppingLine(input);
   expect(a).toEqual(b);
+});
+
+test('resolveShoppingLine uses knownProduct when URL is valid Barbora https', () => {
+  const url = 'https://www.barbora.lv/produkti/some-slug';
+  const r = resolveShoppingLine({
+    query: 'piens',
+    candidates: [],
+    knownProduct: { productUrl: url, displayName: 'My piens' },
+  });
+  expect(r.decision).toBe('add');
+  if (r.decision === 'add') {
+    expect(r.candidate.productUrl).toBe(url);
+    expect(r.candidate.title).toBe('My piens');
+    expect(r.reason).toBe(RESOLVER_REASON_KNOWN_MAPPING);
+  }
+});
+
+test('resolveShoppingLine knownProduct invalid host yields review_needed', () => {
+  const r = resolveShoppingLine({
+    query: 'piens',
+    candidates: [c({ index: 1, title: 'X', productUrl: 'https://www.barbora.lv/p' })],
+    knownProduct: { productUrl: 'https://evil.com/p' },
+  });
+  expect(r.decision).toBe('review_needed');
+  expect(r.reason).toBe(RESOLVER_REASON_KNOWN_MAPPING_INVALID_URL);
+});
+
+test('resolveShoppingLine knownProduct takes precedence over SERP candidates', () => {
+  const r = resolveShoppingLine({
+    query: 'piens',
+    candidates: [c({ index: 1, title: 'Wrong', productUrl: 'https://www.barbora.lv/wrong' })],
+    knownProduct: { productUrl: 'https://www.barbora.lv/right' },
+  });
+  expect(r.decision).toBe('add');
+  if (r.decision === 'add') {
+    expect(r.candidate.productUrl).toBe('https://www.barbora.lv/right');
+  }
 });
