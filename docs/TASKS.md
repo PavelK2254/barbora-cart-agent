@@ -351,3 +351,169 @@ The agent should avoid failing on every out-of-stock situation.
 ### Acceptance criteria
 - A missing preferred product can lead to either a substitute or a review-needed outcome based on policy.
 - Substitutions are surfaced clearly in the summary.
+
+---
+
+## TASK-014 — Implement basic deterministic resolver
+**Type:** implementation
+**Priority:** high
+**Status:** todo
+
+### Goal
+Introduce the first “brain” layer that decides which product to select based on simple deterministic rules.
+
+### Why
+Current orchestration uses naive index-based selection. This task introduces decision-making logic that is explainable and predictable.
+
+### Scope
+- implement a resolver function:
+  - input: search query + SearchCandidate[]
+  - output: decision (add | review_needed | skip) + chosen candidate
+- selection rules:
+  - prefer candidates with productUrl
+  - basic title matching (contains / normalized overlap)
+  - fallback to first valid candidate
+  - if no reasonable candidate → review_needed
+
+### Out of scope
+- LLM usage
+- known mappings
+- substitution logic
+
+### Acceptance criteria
+- Resolver replaces index-based selection in orchestrated run
+- Decisions are deterministic and explainable
+- Ambiguous cases result in review_needed
+
+---
+
+## TASK-015 — Integrate known product mappings into resolver
+**Type:** implementation
+**Priority:** high
+**Status:** todo
+
+### Goal
+Allow resolver to prefer previously confirmed product mappings.
+
+### Why
+Recurring items should not require repeated search and selection.
+
+### Scope
+- load known mappings from storage
+- match input → known mapping (exact or alias)
+- bypass search when mapping exists
+- fall back to search when mapping missing
+
+### Acceptance criteria
+- Known mappings are used before search
+- Previously selected products are reused automatically
+- Behavior is predictable and logged in summary
+
+---
+
+## TASK-016 — Improve candidate evaluation heuristics
+**Type:** implementation
+**Priority:** medium
+**Status:** todo
+
+### Goal
+Improve decision quality beyond “first valid candidate”.
+
+### Why
+Many products share similar names; naive selection is not reliable enough.
+
+### Scope
+- introduce simple scoring signals:
+  - token overlap
+  - unit/quantity hints (e.g. 2L, kg)
+  - basic brand preference if detectable
+- rank candidates instead of picking first
+- still deterministic
+
+### Out of scope
+- ML / embeddings
+- LLM
+
+### Acceptance criteria
+- Resolver prefers more relevant candidates over first result
+- Ambiguous cases still result in review_needed
+
+---
+
+## TASK-017 — Introduce review-needed reasoning
+**Type:** implementation
+**Priority:** medium
+**Status:** todo
+
+### Goal
+Make review_needed outcomes more meaningful and informative.
+
+### Why
+Users need to understand *why* a decision was not made automatically.
+
+### Scope
+- enrich resolver output with reason codes:
+  - no_candidates
+  - multiple_similar_candidates
+  - low_confidence
+- map reasons to userMessage in run summary
+
+### Acceptance criteria
+- review_needed entries include clear reasoning
+- Messages are human-readable and useful
+
+---
+
+## TASK-018 — Introduce LLM-assisted resolution (fallback only)
+**Type:** implementation
+**Priority:** medium
+**Status:** todo
+
+### Goal
+Use an LLM only for ambiguous cases where deterministic rules cannot decide.
+
+### Why
+LLM should enhance decision-making, not replace it entirely.
+
+### Scope
+- call LLM only when:
+  - multiple candidates are plausible
+  - resolver cannot choose confidently
+- input:
+  - user query
+  - small list of candidates
+- output:
+  - chosen candidate or review_needed
+
+### Constraints
+- LLM must not be used for all items
+- deterministic logic runs first
+
+### Acceptance criteria
+- LLM is invoked only for ambiguous cases
+- Cost is controlled and observable
+- Decisions remain explainable
+
+---
+
+## TASK-019 — Resolver observability and debugging improvements
+**Type:** implementation
+**Priority:** low
+**Status:** todo
+
+### Goal
+Make resolver decisions transparent for debugging and iteration.
+
+### Why
+Understanding why a product was chosen is critical for improving the system.
+
+### Scope
+- log decision path:
+  - mapping hit / search used
+  - candidate scores (if applicable)
+  - fallback to LLM (if used)
+- optionally include debug info in JSON output
+
+### Acceptance criteria
+- Developers can trace resolver decisions easily
+- Debug output does not pollute human-readable summary

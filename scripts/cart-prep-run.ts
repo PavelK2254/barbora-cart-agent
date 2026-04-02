@@ -10,7 +10,6 @@ import { hasStorageState, storageStateContextOptions } from '../src/session/stor
 function parseArgs(argv: string[]): {
   queries: string[];
   filePath: string;
-  pick: number;
   topN: number;
   handoff: boolean;
   headed: boolean;
@@ -18,7 +17,6 @@ function parseArgs(argv: string[]): {
 } {
   const queries: string[] = [];
   let filePath = '';
-  let pick = 1;
   let topN = 10;
   let handoff = false;
   let headed = false;
@@ -36,10 +34,6 @@ function parseArgs(argv: string[]): {
     }
     if (a === '--query' || a === '-q') {
       queries.push((rest.shift() ?? '').trim());
-      continue;
-    }
-    if (a === '--pick' || a === '-p') {
-      pick = Math.max(1, parseInt(rest.shift() ?? '1', 10) || 1);
       continue;
     }
     if (a === '--top' || a === '-n') {
@@ -62,13 +56,13 @@ function parseArgs(argv: string[]): {
     printHelp();
     process.exit(1);
   }
-  return { queries, filePath, pick, topN, handoff, headed, json };
+  return { queries, filePath, topN, handoff, headed, json };
 }
 
 function printHelp(): void {
   console.log(`Usage: npx tsx scripts/cart-prep-run.ts [options]
 
-Orchestrated cart-prep (MVP): for each line, search Barbora, take result #--pick, add to cart.
+Orchestrated cart-prep (MVP): for each line, search Barbora, pick one product by deterministic title overlap, add to cart.
 Checkout handoff is optional and off by default (no payment automation).
 
 Input (combine as needed):
@@ -76,8 +70,7 @@ Input (combine as needed):
   -f, --file <path>    UTF-8 file, one non-empty trimmed line per search query (after -q lines)
 
 Options:
-  -p, --pick <n>       1-based search result index (default 1)
-  -n, --top <n>        Max SERP cards to read (default 10; internally at least max(top, pick))
+  -n, --top <n>        Max SERP cards to read (default 10)
       --handoff        After all lines, navigate toward checkout (still stops before payment)
       --headed         Show browser window
       --json           Print RunResultSummary JSON to stdout
@@ -111,7 +104,7 @@ function buildInputLines(queriesFromFlags: string[], fileQueries: string[]): Car
 }
 
 async function main(): Promise<void> {
-  const { queries, filePath, pick, topN, handoff, headed, json } = parseArgs(process.argv.slice(2));
+  const { queries, filePath, topN, handoff, headed, json } = parseArgs(process.argv.slice(2));
 
   let fileQueries: string[] = [];
   if (filePath) {
@@ -158,7 +151,6 @@ async function main(): Promise<void> {
 
   try {
     const summary = await runCartPrepRun(page, inputLines, {
-      pick,
       topN,
       attemptHandoff: handoff,
     });
