@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { runBarboraAddToCartSpike } from '../executor/barboraAddToCartSpike';
 import { runBarboraCheckoutHandoffSpike } from '../executor/barboraCheckoutHandoffSpike';
 import { runBarboraSearchAndCollect } from '../executor/barboraSearchSpike';
+import { resolveShoppingLine } from '../resolver/resolveShoppingLine';
 import type { RunLineResult, RunResultSummary } from './runTypes';
 
 export interface CartPrepInputLine {
@@ -13,8 +14,6 @@ export interface CartPrepInputLine {
 }
 
 export interface CartPrepRunOptions {
-  /** 1-based index into collected search results (same semantics as spike scripts). */
-  pick: number;
   /** Upper bound for how many result cards to read from the SERP. */
   topN: number;
   /** If true, run checkout handoff after all lines (still no payment). */
@@ -32,7 +31,7 @@ function outcomeFromSearchFailure(message: string): RunLineResult['outcome'] {
 }
 
 /**
- * Sequential cart prep: search → pick by index → add. Optional checkout handoff at the end.
+ * Sequential cart prep: search → deterministic resolver → add. Optional checkout handoff at the end.
  */
 export async function runCartPrepRun(
   page: Page,
@@ -40,7 +39,7 @@ export async function runCartPrepRun(
   options: CartPrepRunOptions,
 ): Promise<RunResultSummary> {
   const lineResults: RunLineResult[] = [];
-  const topN = Math.max(1, options.topN, options.pick);
+  const topN = Math.max(1, options.topN);
 
   for (const line of inputLines) {
     const q = line.query.trim();
@@ -55,32 +54,25 @@ export async function runCartPrepRun(
 
     try {
       const candidates = await runBarboraSearchAndCollect(page, { query: q, topN });
-      // Naive rule (temporary): 1-based `--pick` matches spike scripts. Replace with resolver later.
-      const rowAtPick = candidates.find((c) => c.index === options.pick);
-      if (!rowAtPick) {
+      const resolved = resolveShoppingLine({ query: q, candidates });
+      if (resolved.decision === 'review_needed') {
         lineResults.push({
           lineId: line.lineId,
           outcome: 'review_needed',
-          userMessage: `Not enough search results for pick=${options.pick} (got ${candidates.length}). Try a different query or lower --pick.`,
-        });
-        continue;
-      }
-      if (!rowAtPick.productUrl) {
-        lineResults.push({
-          lineId: line.lineId,
-          outcome: 'review_needed',
-          userMessage: `Search result #${options.pick} has no product link ("${rowAtPick.title}"). Pick a product on Barbora or use a direct URL in a future flow.`,
+          userMessage: resolved.reason,
         });
         continue;
       }
 
-      const addResult = await runBarboraAddToCartSpike(page, { productUrl: rowAtPick.productUrl });
+      const addResult = await runBarboraAddToCartSpike(page, {
+        productUrl: resolved.candidate.productUrl,
+      });
       lineResults.push({
         lineId: line.lineId,
         outcome: 'added',
-        barboraLabel: rowAtPick.title,
+        barboraLabel: resolved.candidate.title,
         quantityAdded: 1,
-        userMessage: addResult.message,
+        userMessage: `${resolved.reason} ${addResult.message}`.trim(),
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
