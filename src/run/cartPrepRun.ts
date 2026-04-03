@@ -117,7 +117,8 @@ export async function runCartPrepRun(
       }
 
       if (resolved.decision === 'review_needed') {
-        const llmSlice = buildLlmCandidateSlice(serpCandidates);
+        // Same breadth as SERP collection / resolver input (default script topN is 10; slice was 6 and could omit tied rows).
+        const llmSlice = buildLlmCandidateSlice(serpCandidates, topN);
         const reviewReason = resolved.reasonCode;
 
         if (

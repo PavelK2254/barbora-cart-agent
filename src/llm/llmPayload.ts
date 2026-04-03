@@ -25,6 +25,7 @@ function isUsableCandidate(c: SearchCandidate): boolean {
 
 /**
  * Usable candidates (valid Barbora HTTPS product URL), first maxN in SERP order.
+ * Cart prep passes its run `topN` here so the LLM sees the same breadth as search + resolver.
  */
 export function buildLlmCandidateSlice(
   candidates: SearchCandidate[],

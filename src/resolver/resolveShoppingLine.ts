@@ -11,7 +11,7 @@
  *    query’s pack hint (title primary; card text only when it passes isPackSizeLikePackSizeText).
  *
  * Rules after scoring:
- * - Only candidates with a non-empty productUrl are considered.
+ * - Only candidates with a valid Barbora https product URL (see validateBarboraProductUrl) are considered.
  * - Text normalization: normalizeForMatch (Unicode letter/number, lowercase, collapsed spaces).
  * - Minimum coverage: if the query has ≥2 tokens and there is no phrase match on that candidate,
  *   require ≥2 word-token hits; otherwise that candidate’s score is 0 (weak).
@@ -181,11 +181,20 @@ function scoreCandidate(
   return score + packBonus - packPenalty;
 }
 
+/**
+ * Candidates Barbora can add to cart and the LLM slice can list — same rules as
+ * {@link validateBarboraProductUrl} (https + barbora.lv host).
+ */
 function usableCandidates(candidates: SearchCandidate[]): SearchCandidateWithUrl[] {
-  return candidates.filter(
-    (c): c is SearchCandidateWithUrl =>
-      c.productUrl != null && typeof c.productUrl === 'string' && c.productUrl.trim().length > 0,
-  );
+  const out: SearchCandidateWithUrl[] = [];
+  for (const c of candidates) {
+    const raw = c.productUrl;
+    if (raw == null || typeof raw !== 'string') continue;
+    const v = validateBarboraProductUrl(raw);
+    if (!v.ok) continue;
+    out.push({ ...c, productUrl: v.productUrl });
+  }
+  return out;
 }
 
 /**

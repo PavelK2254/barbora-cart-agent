@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import { chromium } from '@playwright/test';
 
-import { createLlmResolveFn, readLlmJsonCompleterFromEnv } from '../src/llm';
+import { createLlmResolveFn, loadLlmCompleterFromEnv } from '../src/llm';
 import { runCartPrepRun, type CartPrepInputLine } from '../src/run/cartPrepRun';
 import { formatRunSummaryHuman } from '../src/run/formatRunSummary';
 import { hasStorageState, storageStateContextOptions } from '../src/session/storageState';
@@ -170,7 +170,10 @@ async function main(): Promise<void> {
   const page = await context.newPage();
 
   try {
-    const llmComplete = readLlmJsonCompleterFromEnv();
+    const { completer: llmComplete, misconfigurationMessage } = loadLlmCompleterFromEnv();
+    if (misconfigurationMessage != null) {
+      console.error(`[cart-prep] ${misconfigurationMessage}`);
+    }
     const llmResolve = llmComplete != null ? createLlmResolveFn(llmComplete) : undefined;
     if (llmResolve != null) {
       console.log('LLM fallback enabled (ambiguous/weak matches only).');

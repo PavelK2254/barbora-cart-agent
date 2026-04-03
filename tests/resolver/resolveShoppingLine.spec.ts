@@ -56,6 +56,21 @@ test('resolveShoppingLine returns review_needed no_usable_candidates when no can
   }
 });
 
+test('resolveShoppingLine returns no_usable_candidates when links are not valid Barbora URLs', () => {
+  const r = resolveShoppingLine({
+    query: 'piens',
+    candidates: [
+      c({ index: 1, title: 'Piens 2%', productUrl: 'https://other-shop.example/produkti/1' }),
+      c({ index: 2, title: 'Piens 3%', productUrl: 'https://other-shop.example/produkti/2' }),
+    ],
+  });
+  expect(r.decision).toBe('review_needed');
+  if (r.decision === 'review_needed') {
+    expect(r.reasonCode).toBe('no_usable_candidates');
+    expect(r.detail).toBe(RESOLVER_REVIEW_DETAIL_NO_USABLE_CANDIDATES);
+  }
+});
+
 test('resolveShoppingLine ignores candidates without URL when scoring others', () => {
   const r = resolveShoppingLine({
     query: 'maize',
@@ -73,7 +88,13 @@ test('resolveShoppingLine ignores candidates without URL when scoring others', (
 test('resolveShoppingLine returns review_needed when best score is zero', () => {
   const r = resolveShoppingLine({
     query: 'xyzunknown',
-    candidates: [c({ index: 1, title: 'Completely different product', productUrl: 'https://a.lv/p' })],
+    candidates: [
+      c({
+        index: 1,
+        title: 'Completely different product',
+        productUrl: 'https://www.barbora.lv/produkti/weak-only',
+      }),
+    ],
   });
   expect(r.decision).toBe('review_needed');
   if (r.decision === 'review_needed') {
@@ -86,8 +107,8 @@ test('resolveShoppingLine returns review_needed on tie for top score', () => {
   const r = resolveShoppingLine({
     query: 'piens',
     candidates: [
-      c({ index: 1, title: 'Piens 2%', productUrl: 'https://a.lv/1' }),
-      c({ index: 2, title: 'Piens 3%', productUrl: 'https://a.lv/2' }),
+      c({ index: 1, title: 'Piens 2%', productUrl: 'https://www.barbora.lv/produkti/p1' }),
+      c({ index: 2, title: 'Piens 3%', productUrl: 'https://www.barbora.lv/produkti/p2' }),
     ],
   });
   expect(r.decision).toBe('review_needed');
@@ -101,8 +122,8 @@ test('resolveShoppingLine picks unique best by token overlap', () => {
   const r = resolveShoppingLine({
     query: 'pilngraudu maize',
     candidates: [
-      c({ index: 1, title: 'Balta maize', productUrl: 'https://a.lv/1' }),
-      c({ index: 2, title: 'Pilngraudu maize 500g', productUrl: 'https://a.lv/2' }),
+      c({ index: 1, title: 'Balta maize', productUrl: 'https://www.barbora.lv/produkti/m1' }),
+      c({ index: 2, title: 'Pilngraudu maize 500g', productUrl: 'https://www.barbora.lv/produkti/m2' }),
     ],
   });
   expect(r.decision).toBe('add');
@@ -115,8 +136,8 @@ test('resolveShoppingLine prefers full-query substring over token-only lower sco
   const r = resolveShoppingLine({
     query: 'tere piens',
     candidates: [
-      c({ index: 1, title: 'Piens', productUrl: 'https://a.lv/1' }),
-      c({ index: 2, title: 'Tere piens 2,5%', productUrl: 'https://a.lv/2' }),
+      c({ index: 1, title: 'Piens', productUrl: 'https://www.barbora.lv/produkti/t1' }),
+      c({ index: 2, title: 'Tere piens 2,5%', productUrl: 'https://www.barbora.lv/produkti/t2' }),
     ],
   });
   expect(r.decision).toBe('add');
@@ -128,7 +149,7 @@ test('resolveShoppingLine prefers full-query substring over token-only lower sco
 test('resolveShoppingLine is deterministic for same input', () => {
   const input = {
     query: 'banāni',
-    candidates: [c({ index: 1, title: 'Banāni, 1 kg', productUrl: 'https://a.lv/b' })],
+    candidates: [c({ index: 1, title: 'Banāni, 1 kg', productUrl: 'https://www.barbora.lv/produkti/b' })],
   };
   const a = resolveShoppingLine(input);
   const b = resolveShoppingLine(input);
@@ -177,7 +198,7 @@ test('resolveShoppingLine knownProduct takes precedence over SERP candidates', (
 test('resolveShoppingLine does not match piens inside bezpiens (word tokens)', () => {
   const r = resolveShoppingLine({
     query: 'piens',
-    candidates: [c({ index: 1, title: 'Bezpiens', productUrl: 'https://a.lv/1' })],
+    candidates: [c({ index: 1, title: 'Bezpiens', productUrl: 'https://www.barbora.lv/produkti/bz' })],
   });
   expect(r.decision).toBe('review_needed');
   if (r.decision === 'review_needed') {
@@ -190,8 +211,8 @@ test('resolveShoppingLine prefers title pack volume matching query', () => {
   const r = resolveShoppingLine({
     query: 'piens 2 l',
     candidates: [
-      c({ index: 1, title: 'Piens 1 l', productUrl: 'https://a.lv/1' }),
-      c({ index: 2, title: 'Piens 2 l', productUrl: 'https://a.lv/2' }),
+      c({ index: 1, title: 'Piens 1 l', productUrl: 'https://www.barbora.lv/produkti/pk1' }),
+      c({ index: 2, title: 'Piens 2 l', productUrl: 'https://www.barbora.lv/produkti/pk2' }),
     ],
   });
   expect(r.decision).toBe('add');
@@ -204,8 +225,8 @@ test('resolveShoppingLine returns pack_conflict when every candidate contradicts
   const r = resolveShoppingLine({
     query: 'piens 2 l',
     candidates: [
-      c({ index: 1, title: 'Piens 1 l', productUrl: 'https://a.lv/1' }),
-      c({ index: 2, title: 'Piens 1 l', productUrl: 'https://a.lv/2' }),
+      c({ index: 1, title: 'Piens 1 l', productUrl: 'https://www.barbora.lv/produkti/pc1' }),
+      c({ index: 2, title: 'Piens 1 l', productUrl: 'https://www.barbora.lv/produkti/pc2' }),
     ],
   });
   expect(r.decision).toBe('review_needed');
@@ -222,7 +243,7 @@ test('resolveShoppingLine ignores unit-price-like packSizeText', () => {
       c({
         index: 1,
         title: 'Piens 2 l',
-        productUrl: 'https://a.lv/1',
+        productUrl: 'https://www.barbora.lv/produkti/unit1',
         packSizeText: '0,99€/l',
       }),
     ],
@@ -240,10 +261,10 @@ test('resolveShoppingLine applies gated packSizeText when it looks like pack siz
       c({
         index: 1,
         title: 'Tere piens',
-        productUrl: 'https://a.lv/1',
+        productUrl: 'https://www.barbora.lv/produkti/g1',
         packSizeText: '2 l',
       }),
-      c({ index: 2, title: 'Tere piens', productUrl: 'https://a.lv/2' }),
+      c({ index: 2, title: 'Tere piens', productUrl: 'https://www.barbora.lv/produkti/g2' }),
     ],
   });
   expect(r.decision).toBe('add');
