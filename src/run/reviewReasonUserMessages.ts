@@ -20,3 +20,7 @@ export const USER_MESSAGE_ADD_FROM_KNOWN_MAPPING =
 
 /** Shown with add-to-cart result when the line resolved from SERP scoring. */
 export const USER_MESSAGE_ADD_FROM_SEARCH = 'Best match from your search; added to cart.';
+
+/** Shown when the deterministic resolver could not decide and an LLM fallback chose a candidate. */
+export const USER_MESSAGE_ADD_FROM_LLM_FALLBACK =
+  'LLM picked among similar search results; added to cart — verify on Barbora if unsure.';

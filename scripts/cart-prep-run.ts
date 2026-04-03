@@ -3,6 +3,7 @@ import * as path from 'node:path';
 
 import { chromium } from '@playwright/test';
 
+import { createLlmResolveFn, readLlmJsonCompleterFromEnv } from '../src/llm';
 import { runCartPrepRun, type CartPrepInputLine } from '../src/run/cartPrepRun';
 import { formatRunSummaryHuman } from '../src/run/formatRunSummary';
 import { hasStorageState, storageStateContextOptions } from '../src/session/storageState';
@@ -89,6 +90,10 @@ Options:
       --known-mappings <path>  Known product mappings JSON (default: known-mappings.json in cwd; missing = no mappings)
   -h, --help           This message
 
+LLM fallback (optional; deterministic resolver still runs first):
+  Set BARBORA_LLM_ENABLED=true and BARBORA_LLM_API_KEY. Optional: BARBORA_LLM_BASE_URL (default
+  https://api.openai.com/v1), BARBORA_LLM_MODEL (default gpt-4o-mini), BARBORA_LLM_TIMEOUT_MS.
+
 Exit codes:
   0 — Run finished (including lines skipped or review_needed; see summary).
   1 — Fatal: bad args, missing input, I/O error, or unexpected crash before summary.
@@ -165,10 +170,17 @@ async function main(): Promise<void> {
   const page = await context.newPage();
 
   try {
+    const llmComplete = readLlmJsonCompleterFromEnv();
+    const llmResolve = llmComplete != null ? createLlmResolveFn(llmComplete) : undefined;
+    if (llmResolve != null) {
+      console.log('LLM fallback enabled (ambiguous/weak matches only).');
+    }
+
     const summary = await runCartPrepRun(page, inputLines, {
       topN,
       attemptHandoff: handoff,
       knownMappingsPath,
+      llmResolve,
     });
 
     if (json) {
