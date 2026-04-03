@@ -5,12 +5,19 @@ import type { Page } from '@playwright/test';
 import { validateBarboraProductUrl } from '../barbora/validateBarboraProductUrl';
 import { runBarboraAddToCartSpike } from '../executor/barboraAddToCartSpike';
 import { runBarboraCheckoutHandoffSpike } from '../executor/barboraCheckoutHandoffSpike';
+import type { SearchCandidate } from '../executor/searchCandidate';
 import { runBarboraSearchAndCollect } from '../executor/barboraSearchSpike';
+import {
+  buildLlmCandidateSlice,
+  llmFallbackEligibleReason,
+  type LlmResolveFn,
+} from '../llm';
 import { findMappingForNormalizedQuery, loadKnownMappingsFromFile } from '../mappings/knownMappings';
 import { normalizeForMatch } from '../resolver/normalizeForMatch';
 import { resolveShoppingLine } from '../resolver/resolveShoppingLine';
 import {
   USER_MESSAGE_ADD_FROM_KNOWN_MAPPING,
+  USER_MESSAGE_ADD_FROM_LLM_FALLBACK,
   USER_MESSAGE_ADD_FROM_SEARCH,
   userMessageForResolverReviewReason,
 } from './reviewReasonUserMessages';
@@ -33,6 +40,11 @@ export interface CartPrepRunOptions {
    * Missing file loads as empty mappings.
    */
   knownMappingsPath?: string;
+  /**
+   * Optional LLM fallback after deterministic review_needed (ambiguous_match | weak_match) when
+   * usable SERP candidates exist. Must be fail-closed (return null on any failure).
+   */
+  llmResolve?: LlmResolveFn;
 }
 
 const SEARCH_ERR = '[barbora-search-spike]';
@@ -77,6 +89,7 @@ export async function runCartPrepRun(
       let mappingFallbackNote: string | undefined;
       let resolvedFromKnownMapping = false;
       let resolved;
+      let serpCandidates: SearchCandidate[] = [];
 
       if (mappingHit != null) {
         const urlCheck = validateBarboraProductUrl(mappingHit.barboraProductRef);
@@ -95,15 +108,50 @@ export async function runCartPrepRun(
           console.error(
             `[known-mappings] line ${line.lineId} (${q.slice(0, 80)}): ${mappingFallbackNote}`,
           );
-          const candidates = await runBarboraSearchAndCollect(page, { query: q, topN });
-          resolved = resolveShoppingLine({ query: q, candidates });
+          serpCandidates = await runBarboraSearchAndCollect(page, { query: q, topN });
+          resolved = resolveShoppingLine({ query: q, candidates: serpCandidates });
         }
       } else {
-        const candidates = await runBarboraSearchAndCollect(page, { query: q, topN });
-        resolved = resolveShoppingLine({ query: q, candidates });
+        serpCandidates = await runBarboraSearchAndCollect(page, { query: q, topN });
+        resolved = resolveShoppingLine({ query: q, candidates: serpCandidates });
       }
 
       if (resolved.decision === 'review_needed') {
+        const llmSlice = buildLlmCandidateSlice(serpCandidates);
+        const reviewReason = resolved.reasonCode;
+
+        if (
+          options.llmResolve != null &&
+          llmFallbackEligibleReason(reviewReason) &&
+          llmSlice.length > 0
+        ) {
+          try {
+            const picked = await options.llmResolve({
+              query: q,
+              normalizedQuery,
+              reasonCode: reviewReason,
+              candidates: llmSlice,
+            });
+            if (picked != null) {
+              const addResult = await runBarboraAddToCartSpike(page, {
+                productUrl: picked.productUrl,
+              });
+              const addMsg = `${USER_MESSAGE_ADD_FROM_LLM_FALLBACK} ${addResult.message}`.trim();
+              lineResults.push({
+                lineId: line.lineId,
+                outcome: 'added',
+                resolutionSource: 'llm_fallback',
+                barboraLabel: picked.title,
+                quantityAdded: 1,
+                userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,
+              });
+              continue;
+            }
+          } catch {
+            /* fail closed: fall through to review_needed */
+          }
+        }
+
         const reviewText = userMessageForResolverReviewReason(resolved.reasonCode);
         const userMessage = [mappingFallbackNote, reviewText].filter(Boolean).join(' ');
         lineResults.push({
@@ -125,6 +173,7 @@ export async function runCartPrepRun(
       lineResults.push({
         lineId: line.lineId,
         outcome: 'added',
+        resolutionSource: resolvedFromKnownMapping ? 'known_mapping' : 'deterministic',
         barboraLabel: resolved.candidate.title,
         quantityAdded: 1,
         userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,

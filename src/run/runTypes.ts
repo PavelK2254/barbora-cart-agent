@@ -8,12 +8,16 @@ import type { ResolverReviewReasonCode } from '../resolver/resolveShoppingLine';
 
 export type LineOutcome = 'added' | 'skipped' | 'review_needed';
 
+export type ResolutionSource = 'known_mapping' | 'deterministic' | 'llm_fallback';
+
 export interface RunLineResult {
   lineId: string;
   outcome: LineOutcome;
   userMessage: string;
   barboraLabel?: string;
   quantityAdded?: number;
+  /** Set only when outcome is added; which path selected the product. */
+  resolutionSource?: ResolutionSource;
   /** Set only when outcome is review_needed from the deterministic resolver (not search/executor errors). */
   reviewReasonCode?: ResolverReviewReasonCode;
 }
