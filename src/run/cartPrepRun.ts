@@ -195,12 +195,15 @@ export async function runCartPrepRun(
                 productUrl: picked.productUrl,
               });
               const addMsg = `${USER_MESSAGE_ADD_FROM_LLM_FALLBACK} ${addResult.message}`.trim();
+              const llmUrlCheck = validateBarboraProductUrl(picked.productUrl);
               lineResults.push({
                 lineId: line.lineId,
+                query: q,
                 outcome: 'added',
                 resolutionSource: 'llm_fallback',
                 barboraLabel: picked.title,
                 quantityAdded: 1,
+                ...(llmUrlCheck.ok ? { barboraProductRef: llmUrlCheck.productUrl } : {}),
                 userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,
                 lineDebug: lineDebugBase(includeDebug, {
                   knownMappingHit,
@@ -227,6 +230,7 @@ export async function runCartPrepRun(
         const userMessage = [mappingFallbackNote, reviewText].filter(Boolean).join(' ');
         lineResults.push({
           lineId: line.lineId,
+          query: q,
           outcome: 'review_needed',
           userMessage,
           reviewReasonCode: resolved.reasonCode,
@@ -255,12 +259,16 @@ export async function runCartPrepRun(
       const llmOutcomeForAdd: LlmDebugOutcome =
         options.llmResolve == null ? 'not_configured' : 'skipped_ineligible';
 
+      const addUrlCheck = validateBarboraProductUrl(resolved.candidate.productUrl);
+
       lineResults.push({
         lineId: line.lineId,
+        query: q,
         outcome: 'added',
         resolutionSource: resolvedFromKnownMapping ? 'known_mapping' : 'deterministic',
         barboraLabel: resolved.candidate.title,
         quantityAdded: 1,
+        ...(addUrlCheck.ok ? { barboraProductRef: addUrlCheck.productUrl } : {}),
         userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,
         lineDebug: lineDebugBase(includeDebug, {
           knownMappingHit,
@@ -277,6 +285,7 @@ export async function runCartPrepRun(
       const msg = e instanceof Error ? e.message : String(e);
       lineResults.push({
         lineId: line.lineId,
+        query: q,
         outcome: outcomeFromSearchFailure(msg),
         userMessage: msg,
         lineDebug: lineDebugBase(includeDebug, {
