@@ -1,3 +1,5 @@
+import './loadDotenv';
+
 import { chromium } from '@playwright/test';
 
 import { runBarboraSearchAndCollect } from '../src/executor/barboraSearchSpike';

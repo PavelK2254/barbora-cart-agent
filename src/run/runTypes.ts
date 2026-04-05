@@ -4,11 +4,42 @@
  * This slice emits only added | skipped | review_needed (no substituted until real substitution exists).
  */
 
-import type { ResolverReviewReasonCode } from '../resolver/resolveShoppingLine';
+import type { LlmPostAttemptOutcome } from '../llm/llmTypes';
+import type { ResolverDebugRankedRow, ResolverReviewReasonCode } from '../resolver/resolveShoppingLine';
 
 export type LineOutcome = 'added' | 'skipped' | 'review_needed';
 
 export type ResolutionSource = 'known_mapping' | 'deterministic' | 'llm_fallback';
+
+/**
+ * LLM path for optional per-line debug (TASK-019+).
+ * `no_choice` is only a pre-attempt placeholder; after a real LLM call, use `LlmPostAttemptOutcome` values.
+ */
+export type LlmDebugOutcome =
+  | 'not_configured'
+  | 'skipped_ineligible'
+  | 'skipped_no_candidates'
+  | 'no_choice'
+  | 'chose'
+  | LlmPostAttemptOutcome;
+
+/**
+ * Optional structured decision debug for developers; omitted unless cart-prep runs with debug enabled.
+ * No Playwright/browser internals.
+ */
+export interface LineResolutionDebug {
+  knownMappingHit: boolean;
+  knownMappingInvalidFallbackToSearch?: boolean;
+  serpCandidateCount: number;
+  usableCandidateCount: number;
+  /** From deterministic resolver when review_needed or when SERP scoring ran. */
+  deterministicReasonCode?: ResolverReviewReasonCode;
+  /** Top candidates by score after SERP scoring (max 5); absent when known-mapping shortcut or no scoring. */
+  rankedCandidates?: ResolverDebugRankedRow[];
+  llmEligible: boolean;
+  llmAttempted: boolean;
+  llmOutcome: LlmDebugOutcome;
+}
 
 export interface RunLineResult {
   lineId: string;
@@ -20,6 +51,8 @@ export interface RunLineResult {
   resolutionSource?: ResolutionSource;
   /** Set only when outcome is review_needed from the deterministic resolver (not search/executor errors). */
   reviewReasonCode?: ResolverReviewReasonCode;
+  /** Present only when cart-prep `includeDebug` is true. */
+  lineDebug?: LineResolutionDebug;
 }
 
 export interface RunResultSummary {

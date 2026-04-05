@@ -14,14 +14,16 @@ import {
 } from '../llm';
 import { findMappingForNormalizedQuery, loadKnownMappingsFromFile } from '../mappings/knownMappings';
 import { normalizeForMatch } from '../resolver/normalizeForMatch';
+import type { ShoppingLineResolverDebug } from '../resolver/resolveShoppingLine';
 import { resolveShoppingLine } from '../resolver/resolveShoppingLine';
+import { llmDebugBeforeLlmCall } from './llmLineDebug';
 import {
   USER_MESSAGE_ADD_FROM_KNOWN_MAPPING,
   USER_MESSAGE_ADD_FROM_LLM_FALLBACK,
   USER_MESSAGE_ADD_FROM_SEARCH,
   userMessageForResolverReviewReason,
 } from './reviewReasonUserMessages';
-import type { RunLineResult, RunResultSummary } from './runTypes';
+import type { LineResolutionDebug, LlmDebugOutcome, RunLineResult, RunResultSummary } from './runTypes';
 
 export interface CartPrepInputLine {
   /** 1-based id as string, e.g. "1", "2" */
@@ -42,9 +44,11 @@ export interface CartPrepRunOptions {
   knownMappingsPath?: string;
   /**
    * Optional LLM fallback after deterministic review_needed (ambiguous_match | weak_match) when
-   * usable SERP candidates exist. Must be fail-closed (return null on any failure).
+   * usable SERP candidates exist. Must be fail-closed (`failed` with a specific outcome).
    */
   llmResolve?: LlmResolveFn;
+  /** When true, each line may include `lineDebug` (structured resolver/LLM path; no browser internals). */
+  includeDebug?: boolean;
 }
 
 const SEARCH_ERR = '[barbora-search-spike]';
@@ -55,6 +59,31 @@ function makeRunId(): string {
 
 function outcomeFromSearchFailure(message: string): RunLineResult['outcome'] {
   return message.includes(SEARCH_ERR) ? 'review_needed' : 'skipped';
+}
+
+function countUsableSerpCandidates(candidates: SearchCandidate[]): number {
+  let n = 0;
+  for (const c of candidates) {
+    const raw = c.productUrl?.trim();
+    if (!raw) continue;
+    if (validateBarboraProductUrl(raw).ok) n += 1;
+  }
+  return n;
+}
+
+function resolverDebugToLineFields(
+  rd: ShoppingLineResolverDebug | undefined,
+): Pick<LineResolutionDebug, 'deterministicReasonCode' | 'rankedCandidates'> {
+  if (rd == null) return {};
+  return {
+    deterministicReasonCode: rd.reasonCode,
+    rankedCandidates: rd.rankedCandidates,
+  };
+}
+
+function lineDebugBase(includeDebug: boolean, partial: LineResolutionDebug): LineResolutionDebug | undefined {
+  if (!includeDebug) return undefined;
+  return partial;
 }
 
 /**
@@ -68,6 +97,8 @@ export async function runCartPrepRun(
 ): Promise<RunResultSummary> {
   const lineResults: RunLineResult[] = [];
   const topN = Math.max(1, options.topN);
+  const includeDebug = options.includeDebug === true;
+  const resolveOpts = includeDebug ? { includeResolverDebug: true as const } : undefined;
   const mappingsFile = path.resolve(process.cwd(), options.knownMappingsPath ?? 'known-mappings.json');
   const mappingStore = loadKnownMappingsFromFile(mappingsFile);
 
@@ -78,6 +109,14 @@ export async function runCartPrepRun(
         lineId: line.lineId,
         outcome: 'skipped',
         userMessage: 'Empty search query for this line.',
+        lineDebug: lineDebugBase(includeDebug, {
+          knownMappingHit: false,
+          serpCandidateCount: 0,
+          usableCandidateCount: 0,
+          llmEligible: false,
+          llmAttempted: false,
+          llmOutcome: 'not_configured',
+        }),
       });
       continue;
     }
@@ -90,36 +129,52 @@ export async function runCartPrepRun(
       let resolvedFromKnownMapping = false;
       let resolved;
       let serpCandidates: SearchCandidate[] = [];
+      const knownMappingHit = mappingHit != null;
+      let knownMappingInvalidFallbackToSearch = false;
 
       if (mappingHit != null) {
         const urlCheck = validateBarboraProductUrl(mappingHit.barboraProductRef);
         if (urlCheck.ok) {
           resolvedFromKnownMapping = true;
-          resolved = resolveShoppingLine({
-            query: q,
-            candidates: [],
-            knownProduct: {
-              productUrl: urlCheck.productUrl,
-              displayName: mappingHit.displayName,
+          resolved = resolveShoppingLine(
+            {
+              query: q,
+              candidates: [],
+              knownProduct: {
+                productUrl: urlCheck.productUrl,
+                displayName: mappingHit.displayName,
+              },
             },
-          });
+            resolveOpts,
+          );
         } else {
+          knownMappingInvalidFallbackToSearch = true;
           mappingFallbackNote = `Saved product link is invalid; used Barbora search instead. (${urlCheck.message})`;
           console.error(
             `[known-mappings] line ${line.lineId} (${q.slice(0, 80)}): ${mappingFallbackNote}`,
           );
           serpCandidates = await runBarboraSearchAndCollect(page, { query: q, topN });
-          resolved = resolveShoppingLine({ query: q, candidates: serpCandidates });
+          resolved = resolveShoppingLine({ query: q, candidates: serpCandidates }, resolveOpts);
         }
       } else {
         serpCandidates = await runBarboraSearchAndCollect(page, { query: q, topN });
-        resolved = resolveShoppingLine({ query: q, candidates: serpCandidates });
+        resolved = resolveShoppingLine({ query: q, candidates: serpCandidates }, resolveOpts);
       }
+
+      const serpCount = serpCandidates.length;
+      const usableCount = countUsableSerpCandidates(serpCandidates);
+      const rd = resolved.resolverDebug;
 
       if (resolved.decision === 'review_needed') {
         // Same breadth as SERP collection / resolver input (default script topN is 10; slice was 6 and could omit tied rows).
         const llmSlice = buildLlmCandidateSlice(serpCandidates, topN);
         const reviewReason = resolved.reasonCode;
+
+        let { llmEligible, llmAttempted, llmOutcome } = llmDebugBeforeLlmCall({
+          llmResolvePresent: options.llmResolve != null,
+          reviewReason,
+          llmSliceLength: llmSlice.length,
+        });
 
         if (
           options.llmResolve != null &&
@@ -127,13 +182,15 @@ export async function runCartPrepRun(
           llmSlice.length > 0
         ) {
           try {
-            const picked = await options.llmResolve({
+            const llmResult = await options.llmResolve({
               query: q,
               normalizedQuery,
               reasonCode: reviewReason,
               candidates: llmSlice,
             });
-            if (picked != null) {
+            if (llmResult.status === 'chose') {
+              llmOutcome = 'chose';
+              const picked = llmResult.candidate;
               const addResult = await runBarboraAddToCartSpike(page, {
                 productUrl: picked.productUrl,
               });
@@ -145,11 +202,24 @@ export async function runCartPrepRun(
                 barboraLabel: picked.title,
                 quantityAdded: 1,
                 userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,
+                lineDebug: lineDebugBase(includeDebug, {
+                  knownMappingHit,
+                  ...(knownMappingInvalidFallbackToSearch
+                    ? { knownMappingInvalidFallbackToSearch: true }
+                    : {}),
+                  serpCandidateCount: serpCount,
+                  usableCandidateCount: usableCount,
+                  ...resolverDebugToLineFields(rd),
+                  llmEligible,
+                  llmAttempted,
+                  llmOutcome,
+                }),
               });
               continue;
             }
+            llmOutcome = llmResult.outcome;
           } catch {
-            /* fail closed: fall through to review_needed */
+            llmOutcome = 'error';
           }
         }
 
@@ -160,6 +230,16 @@ export async function runCartPrepRun(
           outcome: 'review_needed',
           userMessage,
           reviewReasonCode: resolved.reasonCode,
+          lineDebug: lineDebugBase(includeDebug, {
+            knownMappingHit,
+            ...(knownMappingInvalidFallbackToSearch ? { knownMappingInvalidFallbackToSearch: true } : {}),
+            serpCandidateCount: serpCount,
+            usableCandidateCount: usableCount,
+            ...resolverDebugToLineFields(rd),
+            llmEligible,
+            llmAttempted,
+            llmOutcome,
+          }),
         });
         continue;
       }
@@ -171,6 +251,10 @@ export async function runCartPrepRun(
         ? USER_MESSAGE_ADD_FROM_KNOWN_MAPPING
         : USER_MESSAGE_ADD_FROM_SEARCH;
       const addMsg = `${addPrefix} ${addResult.message}`.trim();
+
+      const llmOutcomeForAdd: LlmDebugOutcome =
+        options.llmResolve == null ? 'not_configured' : 'skipped_ineligible';
+
       lineResults.push({
         lineId: line.lineId,
         outcome: 'added',
@@ -178,6 +262,16 @@ export async function runCartPrepRun(
         barboraLabel: resolved.candidate.title,
         quantityAdded: 1,
         userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,
+        lineDebug: lineDebugBase(includeDebug, {
+          knownMappingHit,
+          ...(knownMappingInvalidFallbackToSearch ? { knownMappingInvalidFallbackToSearch: true } : {}),
+          serpCandidateCount: serpCount,
+          usableCandidateCount: usableCount,
+          ...resolverDebugToLineFields(rd),
+          llmEligible: false,
+          llmAttempted: false,
+          llmOutcome: llmOutcomeForAdd,
+        }),
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -185,6 +279,14 @@ export async function runCartPrepRun(
         lineId: line.lineId,
         outcome: outcomeFromSearchFailure(msg),
         userMessage: msg,
+        lineDebug: lineDebugBase(includeDebug, {
+          knownMappingHit: false,
+          serpCandidateCount: 0,
+          usableCandidateCount: 0,
+          llmEligible: false,
+          llmAttempted: false,
+          llmOutcome: 'not_configured',
+        }),
       });
     }
   }

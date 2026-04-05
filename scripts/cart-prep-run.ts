@@ -1,3 +1,5 @@
+import './loadDotenv';
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -15,6 +17,7 @@ function parseArgs(argv: string[]): {
   handoff: boolean;
   headed: boolean;
   json: boolean;
+  debug: boolean;
   knownMappingsPath: string;
 } {
   const queries: string[] = [];
@@ -23,6 +26,7 @@ function parseArgs(argv: string[]): {
   let handoff = false;
   let headed = false;
   let json = false;
+  let debug = false;
   let knownMappingsPath = 'known-mappings.json';
   const rest = [...argv];
   while (rest.length > 0) {
@@ -55,6 +59,10 @@ function parseArgs(argv: string[]): {
       json = true;
       continue;
     }
+    if (a === '--debug') {
+      debug = true;
+      continue;
+    }
     if (a === '--known-mappings') {
       knownMappingsPath = (rest.shift() ?? '').trim();
       if (!knownMappingsPath) {
@@ -68,7 +76,7 @@ function parseArgs(argv: string[]): {
     printHelp();
     process.exit(1);
   }
-  return { queries, filePath, topN, handoff, headed, json, knownMappingsPath };
+  return { queries, filePath, topN, handoff, headed, json, debug, knownMappingsPath };
 }
 
 function printHelp(): void {
@@ -87,12 +95,16 @@ Options:
       --handoff        After all lines, navigate toward checkout (still stops before payment)
       --headed         Show browser window
       --json           Print RunResultSummary JSON to stdout
+      --debug          Include structured per-line lineDebug (resolver / LLM path; no browser internals).
+                       With --json: included in the JSON on stdout. Without --json: same JSON is written to stderr only;
+                       stdout stays the normal human summary (redirect stderr to a file to capture, e.g. 2> run-debug.json).
       --known-mappings <path>  Known product mappings JSON (default: known-mappings.json in cwd; missing = no mappings)
   -h, --help           This message
 
 LLM fallback (optional; deterministic resolver still runs first):
-  Set BARBORA_LLM_ENABLED=true and BARBORA_LLM_API_KEY. Optional: BARBORA_LLM_BASE_URL (default
-  https://api.openai.com/v1), BARBORA_LLM_MODEL (default gpt-4o-mini), BARBORA_LLM_TIMEOUT_MS.
+  Set BARBORA_LLM_ENABLED=true and BARBORA_LLM_API_KEY (e.g. in a .env file in cwd — see .env.example).
+  Optional: BARBORA_LLM_BASE_URL (default https://api.openai.com/v1), BARBORA_LLM_MODEL (default gpt-4o-mini),
+  BARBORA_LLM_TIMEOUT_MS, BARBORA_LLM_PROVIDER (openai | gemini).
 
 Exit codes:
   0 — Run finished (including lines skipped or review_needed; see summary).
@@ -122,7 +134,7 @@ function buildInputLines(queriesFromFlags: string[], fileQueries: string[]): Car
 }
 
 async function main(): Promise<void> {
-  const { queries, filePath, topN, handoff, headed, json, knownMappingsPath } = parseArgs(
+  const { queries, filePath, topN, handoff, headed, json, debug, knownMappingsPath } = parseArgs(
     process.argv.slice(2),
   );
 
@@ -184,12 +196,16 @@ async function main(): Promise<void> {
       attemptHandoff: handoff,
       knownMappingsPath,
       llmResolve,
+      includeDebug: debug,
     });
 
     if (json) {
       console.log(JSON.stringify(summary, null, 2));
     } else {
       console.log(formatRunSummaryHuman(summary));
+      if (debug) {
+        console.error(JSON.stringify(summary, null, 2));
+      }
     }
   } finally {
     await browser.close();

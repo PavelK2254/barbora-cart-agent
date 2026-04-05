@@ -19,3 +19,31 @@ test('formatRunSummaryHuman surfaces review_needed before other lines', () => {
   expect(text).toContain('lineId: 2');
   expect(text).toContain('Checkout handoff: no');
 });
+
+test('formatRunSummaryHuman does not print lineDebug (TASK-019)', () => {
+  const summary: RunResultSummary = {
+    runId: 'run-test',
+    checkoutHandoffReached: true,
+    lines: [
+      {
+        lineId: '1',
+        outcome: 'added',
+        userMessage: 'ok',
+        barboraLabel: 'A',
+        quantityAdded: 1,
+        lineDebug: {
+          knownMappingHit: false,
+          serpCandidateCount: 3,
+          usableCandidateCount: 2,
+          llmEligible: false,
+          llmAttempted: false,
+          llmOutcome: 'skipped_ineligible',
+        },
+      },
+    ],
+  };
+  const text = formatRunSummaryHuman(summary);
+  expect(text).not.toContain('lineDebug');
+  expect(text).not.toContain('serpCandidateCount');
+  expect(text).not.toContain('llmOutcome');
+});

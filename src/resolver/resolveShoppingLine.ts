@@ -67,6 +67,71 @@ export interface ResolveShoppingLineInput {
   knownProduct?: ResolveShoppingLineKnownProduct;
 }
 
+/** Max rows in optional resolver debug shortlist (TASK-019). */
+export const RESOLVER_DEBUG_MAX_RANKED = 5;
+
+/** Max characters for candidate titles in resolver debug output. */
+export const RESOLVER_DEBUG_TITLE_MAX = 80;
+
+export interface ResolverDebugRankedRow {
+  index: number;
+  score: number;
+  title: string;
+}
+
+/** Decision-focused resolver debug; omits long `detail` strings. */
+export interface ShoppingLineResolverDebug {
+  reasonCode?: ResolverReviewReasonCode;
+  rankedCandidates?: ResolverDebugRankedRow[];
+}
+
+export interface ResolveShoppingLineOptions {
+  /** When true, result includes `resolverDebug` (bounded; no secrets). */
+  includeResolverDebug?: boolean;
+}
+
+type ScoredCandidateRow = { candidate: SearchCandidateWithUrl; score: number };
+
+export type ResolveShoppingLineReturn = ResolveShoppingLineResult & {
+  resolverDebug?: ShoppingLineResolverDebug;
+};
+
+function truncateForResolverDebug(title: string, max: number): string {
+  const t = title.trim();
+  if (t.length <= max) return t;
+  return t.slice(0, max - 1) + '…';
+}
+
+function topRankedForDebug(scored: ScoredCandidateRow[]): ResolverDebugRankedRow[] {
+  return [...scored]
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.candidate.index - b.candidate.index;
+    })
+    .slice(0, RESOLVER_DEBUG_MAX_RANKED)
+    .map((row) => ({
+      index: row.candidate.index,
+      score: row.score,
+      title: truncateForResolverDebug(row.candidate.title, RESOLVER_DEBUG_TITLE_MAX),
+    }));
+}
+
+function finalizeResolve(
+  includeDebug: boolean,
+  result: ResolveShoppingLineResult,
+  scored?: ScoredCandidateRow[],
+): ResolveShoppingLineReturn {
+  if (!includeDebug) return result;
+  const resolverDebug: ShoppingLineResolverDebug = {};
+  if (result.decision === 'review_needed') {
+    resolverDebug.reasonCode = result.reasonCode;
+  }
+  if (scored != null && scored.length > 0) {
+    resolverDebug.rankedCandidates = topRankedForDebug(scored);
+  }
+  return { ...result, resolverDebug };
+}
+
 /** Phrase tier dominates token-only scores; penalty uses the same magnitude to cancel it on conflict. */
 const SCORE_PHRASE_BASE = 1_000_000;
 const SCORE_PER_WORD_MATCH = 100;
@@ -201,24 +266,29 @@ function usableCandidates(candidates: SearchCandidate[]): SearchCandidateWithUrl
  * Deterministic resolution for one shopping line and its search candidates.
  * Caller must pass a non-empty trimmed query (orchestration usually skips empty lines earlier).
  */
-export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveShoppingLineResult {
+export function resolveShoppingLine(
+  input: ResolveShoppingLineInput,
+  options?: ResolveShoppingLineOptions,
+): ResolveShoppingLineReturn {
+  const includeDebug = options?.includeResolverDebug === true;
+
   const normalizedQuery = normalizeForMatch(input.query);
   if (normalizedQuery.length === 0) {
-    return {
+    return finalizeResolve(includeDebug, {
       decision: 'review_needed',
       reasonCode: 'query_empty',
       detail: RESOLVER_REVIEW_DETAIL_QUERY_EMPTY,
-    };
+    });
   }
 
   if (input.knownProduct != null) {
     const urlResult = validateBarboraProductUrl(input.knownProduct.productUrl);
     if (!urlResult.ok) {
-      return {
+      return finalizeResolve(includeDebug, {
         decision: 'review_needed',
         reasonCode: 'known_mapping_invalid',
         detail: RESOLVER_REVIEW_DETAIL_KNOWN_MAPPING_INVALID,
-      };
+      });
     }
     const title =
       input.knownProduct.displayName != null && input.knownProduct.displayName.trim().length > 0
@@ -231,7 +301,7 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
       priceText: null,
       packSizeText: null,
     };
-    return { decision: 'add', candidate };
+    return finalizeResolve(includeDebug, { decision: 'add', candidate });
   }
 
   const queryToks = queryTokens(normalizedQuery);
@@ -239,17 +309,17 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
   const usable = usableCandidates(input.candidates);
   if (usable.length === 0) {
     if (input.candidates.length === 0) {
-      return {
+      return finalizeResolve(includeDebug, {
         decision: 'review_needed',
         reasonCode: 'no_candidates',
         detail: RESOLVER_REVIEW_DETAIL_NO_CANDIDATES,
-      };
+      });
     }
-    return {
+    return finalizeResolve(includeDebug, {
       decision: 'review_needed',
       reasonCode: 'no_usable_candidates',
       detail: RESOLVER_REVIEW_DETAIL_NO_USABLE_CANDIDATES,
-    };
+    });
   }
 
   if (queryHint != null) {
@@ -257,15 +327,15 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
       candidateConflictsWithQueryPack(queryHint, normalizeForMatch(c.title), c.packSizeText),
     );
     if (allConflict) {
-      return {
+      return finalizeResolve(includeDebug, {
         decision: 'review_needed',
         reasonCode: 'pack_conflict',
         detail: RESOLVER_REVIEW_DETAIL_PACK_CONFLICT,
-      };
+      });
     }
   }
 
-  const scored = usable.map((candidate) => ({
+  const scored: ScoredCandidateRow[] = usable.map((candidate) => ({
     candidate,
     score: scoreCandidate(
       normalizedQuery,
@@ -282,32 +352,48 @@ export function resolveShoppingLine(input: ResolveShoppingLineInput): ResolveSho
   }
 
   if (best < 0) {
-    return {
-      decision: 'review_needed',
-      reasonCode: queryHint != null ? 'pack_conflict' : 'weak_match',
-      detail: queryHint != null ? RESOLVER_REVIEW_DETAIL_PACK_CONFLICT : RESOLVER_REVIEW_DETAIL_WEAK,
-    };
+    return finalizeResolve(
+      includeDebug,
+      {
+        decision: 'review_needed',
+        reasonCode: queryHint != null ? 'pack_conflict' : 'weak_match',
+        detail: queryHint != null ? RESOLVER_REVIEW_DETAIL_PACK_CONFLICT : RESOLVER_REVIEW_DETAIL_WEAK,
+      },
+      scored,
+    );
   }
 
   if (best === 0) {
-    return {
-      decision: 'review_needed',
-      reasonCode: 'weak_match',
-      detail: RESOLVER_REVIEW_DETAIL_WEAK,
-    };
+    return finalizeResolve(
+      includeDebug,
+      {
+        decision: 'review_needed',
+        reasonCode: 'weak_match',
+        detail: RESOLVER_REVIEW_DETAIL_WEAK,
+      },
+      scored,
+    );
   }
 
   const atBest = scored.filter((row) => row.score === best);
   if (atBest.length !== 1) {
-    return {
-      decision: 'review_needed',
-      reasonCode: 'ambiguous_match',
-      detail: RESOLVER_REVIEW_DETAIL_AMBIGUOUS,
-    };
+    return finalizeResolve(
+      includeDebug,
+      {
+        decision: 'review_needed',
+        reasonCode: 'ambiguous_match',
+        detail: RESOLVER_REVIEW_DETAIL_AMBIGUOUS,
+      },
+      scored,
+    );
   }
 
-  return {
-    decision: 'add',
-    candidate: atBest[0]!.candidate,
-  };
+  return finalizeResolve(
+    includeDebug,
+    {
+      decision: 'add',
+      candidate: atBest[0]!.candidate,
+    },
+    scored,
+  );
 }

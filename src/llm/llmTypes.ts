@@ -32,6 +32,39 @@ export interface LlmStructuredResponse {
   explanation?: string;
 }
 
-export type LlmJsonComplete = (systemPrompt: string, userContent: string) => Promise<string | null>;
+/** Provider/completion boundary only — no HTTP status, headers, or bodies. */
+export type LlmJsonCompletionFailureReason =
+  | 'empty_response'
+  | 'rate_limited'
+  | 'http_error'
+  | 'error';
 
-export type LlmResolveFn = (input: LlmResolveInput) => Promise<SearchCandidateWithUrl | null>;
+export type LlmJsonCompletionResult =
+  | { ok: true; text: string }
+  | { ok: false; reason: LlmJsonCompletionFailureReason };
+
+export type LlmJsonComplete = (
+  systemPrompt: string,
+  userContent: string,
+) => Promise<LlmJsonCompletionResult>;
+
+/** Parse/validation failures only (provider empty / transport use other outcomes). */
+export type LlmParseFailureReason =
+  | 'model_review_needed'
+  | 'invalid_json'
+  | 'invalid_shape'
+  | 'invalid_index'
+  | 'invalid_url';
+
+export type LlmParseResult =
+  | { ok: true; candidate: SearchCandidateWithUrl }
+  | { ok: false; reason: LlmParseFailureReason };
+
+/** Outcomes after an LLM attempt (for debug); never `no_choice` (that is pre-attempt only). */
+export type LlmPostAttemptOutcome = LlmParseFailureReason | LlmJsonCompletionFailureReason;
+
+export type LlmResolveResult =
+  | { status: 'chose'; candidate: SearchCandidateWithUrl }
+  | { status: 'failed'; outcome: LlmPostAttemptOutcome };
+
+export type LlmResolveFn = (input: LlmResolveInput) => Promise<LlmResolveResult>;

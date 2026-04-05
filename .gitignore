@@ -1,3 +1,6 @@
+# Local secrets and env (never commit)
+.env
+
 # Local Playwright storage state (cookies / localStorage); never commit.
 .auth/
 
