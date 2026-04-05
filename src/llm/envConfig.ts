@@ -28,6 +28,7 @@ export interface LoadLlmCompleterFromEnvResult {
 
 /**
  * Reads LLM config from env. Use {@link readLlmJsonCompleterFromEnv} when you only need the completer.
+ * CLI scripts load a root `.env` first (see `scripts/loadDotenv.ts`); existing `process.env` wins.
  *
  * Env vars:
  * - BARBORA_LLM_ENABLED — enable LLM fallback when truthy

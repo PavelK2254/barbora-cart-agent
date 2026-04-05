@@ -1,7 +1,6 @@
-import type { SearchCandidateWithUrl } from '../resolver/resolveShoppingLine';
 import { buildLlmUserPayload } from './llmPayload';
-import type { LlmJsonComplete, LlmResolveFn, LlmResolveInput } from './llmTypes';
-import { parseLlmResolutionResponse } from './parseLlmResolutionResponse';
+import type { LlmJsonComplete, LlmResolveFn, LlmResolveInput, LlmResolveResult } from './llmTypes';
+import { parseLlmResolutionResponseDetailed } from './parseLlmResolutionResponse';
 
 const SYSTEM_PROMPT = `You help pick one grocery product from a fixed list for a Latvian e-shop search.
 Respond with a single JSON object only (no markdown), shape:
@@ -13,22 +12,34 @@ Rules:
 - explanation is optional; short if present.`;
 
 /**
- * Fail closed: never throws; returns null when the LLM cannot produce a validated choice.
+ * Fail closed: never throws; returns `failed` when the LLM cannot produce a validated choice.
  */
 export function createLlmResolveFn(completeJson: LlmJsonComplete): LlmResolveFn {
-  return async (input: LlmResolveInput): Promise<SearchCandidateWithUrl | null> => {
+  return async (input: LlmResolveInput): Promise<LlmResolveResult> => {
     try {
-      if (input.candidates.length === 0) return null;
+      if (input.candidates.length === 0) {
+        return { status: 'failed', outcome: 'invalid_shape' };
+      }
 
       const payload = buildLlmUserPayload(input);
       const userContent = JSON.stringify(payload);
 
-      const raw = await completeJson(SYSTEM_PROMPT, userContent);
-      if (raw == null) return null;
+      const completion = await completeJson(SYSTEM_PROMPT, userContent);
+      if (!completion.ok) {
+        return { status: 'failed', outcome: completion.reason };
+      }
+      const raw = completion.text.trim();
+      if (raw === '') {
+        return { status: 'failed', outcome: 'empty_response' };
+      }
 
-      return parseLlmResolutionResponse(raw, input.candidates);
+      const parsed = parseLlmResolutionResponseDetailed(raw, input.candidates);
+      if (parsed.ok) {
+        return { status: 'chose', candidate: parsed.candidate };
+      }
+      return { status: 'failed', outcome: parsed.reason };
     } catch {
-      return null;
+      return { status: 'failed', outcome: 'error' };
     }
   };
 }

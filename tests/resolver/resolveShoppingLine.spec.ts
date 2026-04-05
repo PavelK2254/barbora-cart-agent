@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 
 import type { SearchCandidate } from '../../src/executor/searchCandidate';
 import {
+  RESOLVER_DEBUG_MAX_RANKED,
+  RESOLVER_DEBUG_TITLE_MAX,
   RESOLVER_REVIEW_DETAIL_AMBIGUOUS,
   RESOLVER_REVIEW_DETAIL_KNOWN_MAPPING_INVALID,
   RESOLVER_REVIEW_DETAIL_NO_CANDIDATES,
@@ -271,4 +273,54 @@ test('resolveShoppingLine applies gated packSizeText when it looks like pack siz
   if (r.decision === 'add') {
     expect(r.candidate.index).toBe(1);
   }
+});
+
+test('resolveShoppingLine omits resolverDebug when includeResolverDebug is not set', () => {
+  const r = resolveShoppingLine({ query: 'piens', candidates: [] });
+  expect(r.resolverDebug).toBeUndefined();
+});
+
+test('resolveShoppingLine with includeResolverDebug caps rankedCandidates at 5 and sorts by score desc', () => {
+  const candidates: SearchCandidate[] = [];
+  for (let i = 1; i <= 7; i++) {
+    candidates.push(
+      c({
+        index: i,
+        title: `Piens variant ${i}`,
+        productUrl: `https://www.barbora.lv/produkti/p${i}`,
+      }),
+    );
+  }
+  const r = resolveShoppingLine({ query: 'piens', candidates }, { includeResolverDebug: true });
+  expect(r.decision).toBe('review_needed');
+  expect(r.resolverDebug?.rankedCandidates?.length).toBe(RESOLVER_DEBUG_MAX_RANKED);
+  const ranked = r.resolverDebug!.rankedCandidates!;
+  for (let i = 0; i < ranked.length - 1; i++) {
+    expect(ranked[i]!.score).toBeGreaterThanOrEqual(ranked[i + 1]!.score);
+  }
+});
+
+test('resolveShoppingLine resolverDebug truncates long titles', () => {
+  const longTitle = 'x'.repeat(RESOLVER_DEBUG_TITLE_MAX + 20);
+  const r = resolveShoppingLine(
+    {
+      query: 'piens',
+      candidates: [
+        c({ index: 1, title: longTitle, productUrl: 'https://www.barbora.lv/produkti/lt' }),
+      ],
+    },
+    { includeResolverDebug: true },
+  );
+  expect(r.decision).toBe('review_needed');
+  const t = r.resolverDebug?.rankedCandidates?.[0]?.title;
+  expect(t).toBeDefined();
+  expect(t!.length).toBeLessThanOrEqual(RESOLVER_DEBUG_TITLE_MAX + 1);
+  expect(t!.endsWith('…')).toBe(true);
+});
+
+test('resolveShoppingLine includeResolverDebug sets reasonCode without detail on resolverDebug', () => {
+  const r = resolveShoppingLine({ query: 'piens', candidates: [] }, { includeResolverDebug: true });
+  expect(r.decision).toBe('review_needed');
+  expect(r.resolverDebug?.reasonCode).toBe('no_candidates');
+  expect((r.resolverDebug as { detail?: string })?.detail).toBeUndefined();
 });

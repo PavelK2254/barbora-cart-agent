@@ -7,15 +7,24 @@ export {
   llmFallbackEligibleReason,
   normalizedQueryAddsValue,
 } from './llmPayload';
-export { parseLlmResolutionResponse } from './parseLlmResolutionResponse';
+export {
+  parseLlmResolutionResponse,
+  parseLlmResolutionResponseDetailed,
+} from './parseLlmResolutionResponse';
 export { createGeminiJsonCompleter } from './geminiClient';
 export type { GeminiJsonConfig } from './geminiClient';
 export { createOpenAiCompatibleJsonCompleter } from './openAiCompatibleClient';
 export type {
   LlmFallbackReasonCode,
   LlmJsonComplete,
+  LlmJsonCompletionFailureReason,
+  LlmJsonCompletionResult,
+  LlmParseFailureReason,
+  LlmParseResult,
+  LlmPostAttemptOutcome,
   LlmResolveFn,
   LlmResolveInput,
+  LlmResolveResult,
   LlmStructuredResponse,
   LlmUserPayload,
 } from './llmTypes';
