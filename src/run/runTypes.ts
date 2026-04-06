@@ -45,8 +45,12 @@ export interface RunLineResult {
   lineId: string;
   outcome: LineOutcome;
   userMessage: string;
+  /** Shopping-line search text (trimmed); ASCII transliteration of Latvian letters for stable JSON. */
+  query?: string;
   barboraLabel?: string;
   quantityAdded?: number;
+  /** Canonical Barbora product URL when outcome is added and URL was validated for add-to-cart. */
+  barboraProductRef?: string;
   /** Set only when outcome is added; which path selected the product. */
   resolutionSource?: ResolutionSource;
   /** Set only when outcome is review_needed from the deterministic resolver (not search/executor errors). */

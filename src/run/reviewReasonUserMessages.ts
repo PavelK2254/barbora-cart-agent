@@ -23,4 +23,4 @@ export const USER_MESSAGE_ADD_FROM_SEARCH = 'Best match from your search; added 
 
 /** Shown when the deterministic resolver could not decide and an LLM fallback chose a candidate. */
 export const USER_MESSAGE_ADD_FROM_LLM_FALLBACK =
-  'LLM picked among similar search results; added to cart — verify on Barbora if unsure.';
+  'LLM picked among similar search results; added to cart - verify on Barbora if unsure.';

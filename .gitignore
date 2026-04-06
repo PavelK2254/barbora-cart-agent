@@ -1,3 +1,6 @@
+# Cursor IDE (local settings, plans, MCP cache)
+.cursor/
+
 # Local secrets and env (never commit)
 .env
 
@@ -5,6 +8,9 @@
 .auth/
 
 shopping.txt
+
+# Local Barbora product memory (created by known-mappings:persist); keep in your working copy, do not commit.
+known-mappings.json
 
 node_modules/
 .auth/

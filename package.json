@@ -13,7 +13,8 @@
     "spike:search": "npx tsx scripts/search-spike.ts",
     "spike:add-to-cart": "npx tsx scripts/add-to-cart-spike.ts",
     "spike:checkout-handoff": "npx tsx scripts/checkout-handoff-spike.ts",
-    "run:cart-prep": "npx tsx scripts/cart-prep-run.ts"
+    "run:cart-prep": "npx tsx scripts/cart-prep-run.ts",
+    "known-mappings:persist": "npx tsx scripts/persist-known-mappings.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

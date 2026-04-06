@@ -87,3 +87,22 @@ test('findMappingForNormalizedQuery returns null when no match', () => {
   const store = { mappings: [] };
   expect(findMappingForNormalizedQuery(store, 'piens')).toBeNull();
 });
+
+test('findMappingForNormalizedQuery matches Latvian matchKey to ASCII-normalized query', () => {
+  const store = loadKnownMappingsFromFile(
+    writeTempJson(
+      'm.json',
+      JSON.stringify({
+        mappings: [
+          {
+            matchKeys: ['piēns 2l'],
+            aliases: [],
+            barboraProductRef: 'https://www.barbora.lv/produkti/piens',
+          },
+        ],
+      }),
+    ),
+  );
+  const n = normalizeForMatch('piens 2l');
+  expect(findMappingForNormalizedQuery(store, n)?.barboraProductRef).toContain('/piens');
+});

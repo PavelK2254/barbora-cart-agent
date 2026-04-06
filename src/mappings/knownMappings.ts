@@ -1,6 +1,6 @@
 /**
- * Read-only known Barbora product mappings (known-mappings.json).
- * Persistence / save flows are future work (TASK-011).
+ * Known Barbora product mappings (known-mappings.json): load, lookup, and parse validation.
+ * Writes are performed only by `persistKnownMappings.ts` (explicit CLI approval workflow).
  */
 
 import * as fs from 'node:fs';
