@@ -11,6 +11,8 @@ import * as path from 'node:path';
 
 import { validateBarboraProductUrl } from '../barbora/validateBarboraProductUrl';
 import { normalizeForMatch } from '../resolver/normalizeForMatch';
+import { readTextFileAutodetect } from '../text/readTextFileAutodetect';
+import { transliterateLatvianToAscii } from '../text/transliterateLatvianToAscii';
 import type { RunLineResult, RunResultSummary } from '../run/runTypes';
 import type { KnownBarboraProductMappingEntry } from './knownMappings';
 import { loadKnownMappingsFromFile } from './knownMappings';
@@ -129,13 +131,15 @@ export function mappingEntryFromApprovedLine(
   if (!urlCheck.ok) {
     return { ok: false, reason: `invalid barboraProductRef: ${urlCheck.message}` };
   }
+  const keyAscii = transliterateLatvianToAscii(query);
+  const displayAscii = transliterateLatvianToAscii(label);
   return {
     ok: true,
     entry: {
-      matchKeys: [query],
+      matchKeys: [keyAscii],
       aliases: [],
       barboraProductRef: urlCheck.productUrl,
-      displayName: label,
+      displayName: displayAscii,
     },
   };
 }
@@ -200,7 +204,7 @@ export function persistApprovedLinesToKnownMappingsFile(
   const resolvedRun = path.resolve(options.runJsonPath);
   let text: string;
   try {
-    text = fs.readFileSync(resolvedRun, 'utf8');
+    text = readTextFileAutodetect(resolvedRun);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`cannot read run file (${resolvedRun}): ${msg}`);

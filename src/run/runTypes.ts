@@ -45,7 +45,7 @@ export interface RunLineResult {
   lineId: string;
   outcome: LineOutcome;
   userMessage: string;
-  /** Shopping-line search text (trimmed); set when the line had non-empty query after trim. */
+  /** Shopping-line search text (trimmed); ASCII transliteration of Latvian letters for stable JSON. */
   query?: string;
   barboraLabel?: string;
   quantityAdded?: number;

@@ -14,6 +14,7 @@ import {
 } from '../llm';
 import { findMappingForNormalizedQuery, loadKnownMappingsFromFile } from '../mappings/knownMappings';
 import { normalizeForMatch } from '../resolver/normalizeForMatch';
+import { transliterateLatvianToAscii } from '../text/transliterateLatvianToAscii';
 import type { ShoppingLineResolverDebug } from '../resolver/resolveShoppingLine';
 import { resolveShoppingLine } from '../resolver/resolveShoppingLine';
 import { llmDebugBeforeLlmCall } from './llmLineDebug';
@@ -84,6 +85,15 @@ function resolverDebugToLineFields(
 function lineDebugBase(includeDebug: boolean, partial: LineResolutionDebug): LineResolutionDebug | undefined {
   if (!includeDebug) return undefined;
   return partial;
+}
+
+/** ASCII-friendly strings for run JSON (search still uses the raw query). */
+function summaryQuery(q: string): string {
+  return transliterateLatvianToAscii(q);
+}
+
+function summaryLabel(title: string): string {
+  return transliterateLatvianToAscii(title);
 }
 
 /**
@@ -198,10 +208,10 @@ export async function runCartPrepRun(
               const llmUrlCheck = validateBarboraProductUrl(picked.productUrl);
               lineResults.push({
                 lineId: line.lineId,
-                query: q,
+                query: summaryQuery(q),
                 outcome: 'added',
                 resolutionSource: 'llm_fallback',
-                barboraLabel: picked.title,
+                barboraLabel: summaryLabel(picked.title),
                 quantityAdded: 1,
                 ...(llmUrlCheck.ok ? { barboraProductRef: llmUrlCheck.productUrl } : {}),
                 userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,
@@ -230,7 +240,7 @@ export async function runCartPrepRun(
         const userMessage = [mappingFallbackNote, reviewText].filter(Boolean).join(' ');
         lineResults.push({
           lineId: line.lineId,
-          query: q,
+          query: summaryQuery(q),
           outcome: 'review_needed',
           userMessage,
           reviewReasonCode: resolved.reasonCode,
@@ -263,10 +273,10 @@ export async function runCartPrepRun(
 
       lineResults.push({
         lineId: line.lineId,
-        query: q,
+        query: summaryQuery(q),
         outcome: 'added',
         resolutionSource: resolvedFromKnownMapping ? 'known_mapping' : 'deterministic',
-        barboraLabel: resolved.candidate.title,
+        barboraLabel: summaryLabel(resolved.candidate.title),
         quantityAdded: 1,
         ...(addUrlCheck.ok ? { barboraProductRef: addUrlCheck.productUrl } : {}),
         userMessage: mappingFallbackNote ? `${mappingFallbackNote} ${addMsg}` : addMsg,
@@ -285,7 +295,7 @@ export async function runCartPrepRun(
       const msg = e instanceof Error ? e.message : String(e);
       lineResults.push({
         lineId: line.lineId,
-        query: q,
+        query: summaryQuery(q),
         outcome: outcomeFromSearchFailure(msg),
         userMessage: msg,
         lineDebug: lineDebugBase(includeDebug, {

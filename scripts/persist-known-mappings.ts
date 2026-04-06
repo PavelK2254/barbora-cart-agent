@@ -14,6 +14,7 @@ function printHelp(): void {
 
 Read a cart-prep RunResultSummary JSON (--json from cart-prep-run) and merge selected lines into
 known-mappings.json. Only lineIds you list are considered; each must be outcome added and pass checks.
+Run files may be UTF-8 (with or without BOM) or UTF-16 LE/BE with BOM (common when saved from Windows).
 
 Required:
   --run <path>           Run summary JSON file
