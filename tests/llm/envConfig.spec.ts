@@ -9,6 +9,7 @@ const ENV_KEYS = [
   'BARBORA_LLM_BASE_URL',
   'BARBORA_LLM_MODEL',
   'BARBORA_LLM_TIMEOUT_MS',
+  'BARBORA_LLM_MIN_INTERVAL_MS',
 ] as const;
 
 function snapshotEnv(): Record<string, string | undefined> {

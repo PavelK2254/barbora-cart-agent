@@ -1,6 +1,7 @@
 import { createGeminiJsonCompleter } from './geminiClient';
 import { createOpenAiCompatibleJsonCompleter, type OpenAiCompatibleConfig } from './openAiCompatibleClient';
 import type { LlmJsonComplete } from './llmTypes';
+import { wrapLlmJsonCompleterWithMinInterval } from './minIntervalCompleter';
 
 const DEFAULT_BASE = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -37,6 +38,8 @@ export interface LoadLlmCompleterFromEnvResult {
  * - BARBORA_LLM_BASE_URL — OpenAI-compatible API base (openai) or Gemini REST base (gemini); provider-specific defaults apply when unset
  * - BARBORA_LLM_MODEL — model id; provider-specific defaults when unset
  * - BARBORA_LLM_TIMEOUT_MS — request timeout in ms
+ * - BARBORA_LLM_MIN_INTERVAL_MS — optional; if >0, wait at least this many ms between consecutive
+ *   LLM request starts (after each call completes). Use with low RPM limits (e.g. Gemini free tier ~10 RPM → 6000+).
  */
 export function loadLlmCompleterFromEnv(): LoadLlmCompleterFromEnvResult {
   if (!truthyEnv(process.env.BARBORA_LLM_ENABLED)) {
@@ -57,6 +60,12 @@ export function loadLlmCompleterFromEnv(): LoadLlmCompleterFromEnvResult {
       ? Math.max(0, parseInt(timeoutRaw, 10) || DEFAULT_TIMEOUT_MS)
       : DEFAULT_TIMEOUT_MS;
 
+  const minIntervalRaw = process.env.BARBORA_LLM_MIN_INTERVAL_MS?.trim();
+  const minIntervalMs =
+    minIntervalRaw != null && minIntervalRaw !== ''
+      ? Math.max(0, parseInt(minIntervalRaw, 10) || 0)
+      : 0;
+
   const providerRaw = process.env.BARBORA_LLM_PROVIDER?.trim().toLowerCase() || 'openai';
   if (providerRaw !== 'openai' && providerRaw !== 'gemini') {
     return {
@@ -75,18 +84,20 @@ export function loadLlmCompleterFromEnv(): LoadLlmCompleterFromEnvResult {
       model,
       timeoutMs,
     };
-    return { completer: createOpenAiCompatibleJsonCompleter(config) };
+    const base = createOpenAiCompatibleJsonCompleter(config);
+    return { completer: wrapLlmJsonCompleterWithMinInterval(base, minIntervalMs) };
   }
 
   const baseUrl = (process.env.BARBORA_LLM_BASE_URL?.trim() || GEMINI_DEFAULT_BASE).trim();
   const model = (process.env.BARBORA_LLM_MODEL?.trim() || GEMINI_DEFAULT_MODEL).trim();
+  const base = createGeminiJsonCompleter({
+    apiKey,
+    baseUrl,
+    model,
+    timeoutMs,
+  });
   return {
-    completer: createGeminiJsonCompleter({
-      apiKey,
-      baseUrl,
-      model,
-      timeoutMs,
-    }),
+    completer: wrapLlmJsonCompleterWithMinInterval(base, minIntervalMs),
   };
 }
 

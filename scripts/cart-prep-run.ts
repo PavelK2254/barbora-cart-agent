@@ -104,7 +104,8 @@ Options:
 LLM fallback (optional; deterministic resolver still runs first):
   Set BARBORA_LLM_ENABLED=true and BARBORA_LLM_API_KEY (e.g. in a .env file in cwd — see .env.example).
   Optional: BARBORA_LLM_BASE_URL (default https://api.openai.com/v1), BARBORA_LLM_MODEL (default gpt-4o-mini),
-  BARBORA_LLM_TIMEOUT_MS, BARBORA_LLM_PROVIDER (openai | gemini).
+  BARBORA_LLM_TIMEOUT_MS, BARBORA_LLM_PROVIDER (openai | gemini),
+  BARBORA_LLM_MIN_INTERVAL_MS (pace requests; e.g. 6500 when Gemini RPM is ~10).
 
 Exit codes:
   0 — Run finished (including lines skipped or review_needed; see summary).

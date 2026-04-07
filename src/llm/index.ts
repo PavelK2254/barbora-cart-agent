@@ -11,6 +11,7 @@ export {
   parseLlmResolutionResponse,
   parseLlmResolutionResponseDetailed,
 } from './parseLlmResolutionResponse';
+export { wrapLlmJsonCompleterWithMinInterval } from './minIntervalCompleter';
 export { createGeminiJsonCompleter } from './geminiClient';
 export type { GeminiJsonConfig } from './geminiClient';
 export { createOpenAiCompatibleJsonCompleter } from './openAiCompatibleClient';
