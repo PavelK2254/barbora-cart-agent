@@ -5,7 +5,7 @@ import { createGeminiJsonCompleter } from '../../src/llm/geminiClient';
 const config = {
   apiKey: 'test-key',
   baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-  model: 'gemini-2.0-flash',
+  model: 'gemini-3.1-flash-lite-preview',
   timeoutMs: 60_000,
 };
 
@@ -37,7 +37,7 @@ test.describe('createGeminiJsonCompleter', () => {
     const c = createGeminiJsonCompleter(config);
     const out = await c('system', 'user');
     expect(out).toEqual({ ok: true, text: '{}' });
-    expect(seenUrl).toContain('/models/gemini-2.0-flash:generateContent');
+    expect(seenUrl).toContain('/models/gemini-3.1-flash-lite-preview:generateContent');
     expect(apiKeyHeader).toBe('test-key');
   });
 

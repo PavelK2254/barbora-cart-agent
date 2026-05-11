@@ -73,6 +73,7 @@ Examples:
   npm run spike:add-to-cart -- --query "piens" --pick 1
 
 Session: uses .auth/barbora-storage-state.json when present (see npm run session:bootstrap).
+PDP DOM research (requires saved session): npm run inspect:pdp -- --url "<https://...>"
 `);
 }
 

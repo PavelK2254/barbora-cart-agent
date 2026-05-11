@@ -10,7 +10,7 @@ const DEFAULT_TIMEOUT_MS = 45_000;
 /** Used when BARBORA_LLM_PROVIDER=gemini and BARBORA_LLM_BASE_URL is unset. */
 const GEMINI_DEFAULT_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 /** Used when BARBORA_LLM_PROVIDER=gemini and BARBORA_LLM_MODEL is unset. */
-const GEMINI_DEFAULT_MODEL = 'gemini-2.0-flash';
+const GEMINI_DEFAULT_MODEL = 'gemini-3.1-flash-lite-preview';
 
 function truthyEnv(v: string | undefined): boolean {
   const t = v?.trim().toLowerCase();
