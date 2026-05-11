@@ -84,7 +84,12 @@ function appearsCartEmptyFromHeaderSignal(cartSignal: string): boolean {
 
 /** Header cart total: `.last()` prefers the visible duplicate when Barbora renders hidden + visible header controls. */
 function cartHeaderLocator(page: Page) {
-  return page.locator('button.b-cart-in-header--btn').filter({ hasText: /\d+[.,]\d+/ }).last();
+  const legacy = page.locator('button.b-cart-in-header--btn').filter({ hasText: /\d+[.,]\d+/ });
+  const headerTotalish = page
+    .locator('header')
+    .locator('a, button')
+    .filter({ hasText: /\d+[.,]\d+\s*€/ });
+  return legacy.or(headerTotalish).last();
 }
 
 async function dismissCookieBannerIfPresent(page: Page): Promise<void> {
@@ -169,7 +174,7 @@ export async function runBarboraCheckoutHandoffSpike(
   const cartLoc = cartHeaderLocator(page);
   await cartLoc.waitFor({ state: 'visible', timeout: 20_000 }).catch(() => {
     throw new Error(
-      `${ERR} cart signal not found: no visible button.b-cart-in-header--btn with a price-like label. URL: ${page.url()}`,
+      `${ERR} cart signal not found: no visible header cart total (legacy .b-cart-in-header--btn or header control with a € amount). URL: ${page.url()}`,
     );
   });
   stepsAttempted.push('wait_header_cart_signal');

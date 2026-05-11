@@ -2,9 +2,10 @@
  * Barbora.lv add-to-cart spike — DOM assumptions (fragile, verify after site updates):
  * - Cookie banner: `#CybotCookiebotDialog` with either `#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll`
  *   or role button name matching /Atļaut visus sīkfailus/i.
- * - Cart verification signal: `button.b-cart-in-header--btn` with a price-like label; Barbora may render two nodes (e.g. mobile/desktop) — use **.last()** so the visible header instance is used.
- * - Add to cart: primary `button` in `main` with accessible name matching Latvian / Russian / English
- *   add phrases (e.g. "В корзину", "Pievienot grozam").
+ * - Cart verification signal: legacy `button.b-cart-in-header--btn` **or** any `header` `a`/`button` whose text looks like a cart total (`0,00 €`); **.last()** prefers the visible duplicate when two nodes exist.
+ * - Add to cart (2026-05): Barbora dropped `<main>` on PDPs and no longer exposes a stable `id` on the CTA; scope the
+ *   same accessible-name match to `.b-product-info--price-and-quantity` or `.b-product-info-wrap .b-product-page--quantity-control`
+ *   so we do not click “В корзину” on unrelated product tiles. Re-verify with logged-in session: `npx tsx scripts/inspect-barbora-pdp.ts --url …`.
  * Success rule (explicit, not strict +1): header cart text changed, or empty/zero-total → non-zero-total,
  * or parsed € amount increased. Uses before/after reads; avoids networkidle.
  */
@@ -22,6 +23,23 @@ const COOKIE_OPTIN_ALLOW = '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowA
 /** Locales observed on barbora.lv PDPs */
 const ADD_TO_CART_NAME_RE =
   /Pievienot(\s+grozam)?|В корзину|Добавить в корзину|Add to cart/i;
+
+/** PDP hero add-to-cart (2026 layout — no `<main>`, unstable button `id`). */
+const PDP_ADD_IN_PRICE_COL = '.b-product-info--price-and-quantity';
+const PDP_ADD_IN_PAGE_CONTROL = '.b-product-info-wrap .b-product-page--quantity-control';
+
+function primaryAddToCartLocator(page: Page) {
+  const inPriceCol = page
+    .locator(PDP_ADD_IN_PRICE_COL)
+    .getByRole('button', { name: ADD_TO_CART_NAME_RE })
+    .first();
+  const inPageControl = page
+    .locator(PDP_ADD_IN_PAGE_CONTROL)
+    .getByRole('button', { name: ADD_TO_CART_NAME_RE })
+    .first();
+  const globalFallback = page.getByRole('button', { name: ADD_TO_CART_NAME_RE }).first();
+  return { inPriceCol, inPageControl, globalFallback };
+}
 
 export interface RunBarboraAddToCartOptions {
   productUrl: string;
@@ -41,7 +59,8 @@ function assertValidBarboraProductUrl(url: string): void {
   }
 }
 
-async function dismissCookieBannerIfPresent(page: Page): Promise<void> {
+/** Shared with local PDP inspect spike — Barbora mounts Cookiebot shortly after load. */
+export async function dismissBarboraCookieBannerIfPresent(page: Page): Promise<void> {
   const dialog = page.locator(COOKIE_DIALOG);
   const optin = page.locator(COOKIE_OPTIN_ALLOW);
   const lvAllow = page.getByRole('button', { name: /Atļaut visus sīkfailus/i });
@@ -72,7 +91,12 @@ async function dismissCookieBannerIfPresent(page: Page): Promise<void> {
 
 /** Header cart total: `.last()` prefers the visible duplicate when Barbora renders hidden + visible header controls. */
 function cartHeaderLocator(page: Page) {
-  return page.locator('button.b-cart-in-header--btn').filter({ hasText: /\d+[.,]\d+/ }).last();
+  const legacy = page.locator('button.b-cart-in-header--btn').filter({ hasText: /\d+[.,]\d+/ });
+  const headerTotalish = page
+    .locator('header')
+    .locator('a, button')
+    .filter({ hasText: /\d+[.,]\d+\s*€/ });
+  return legacy.or(headerTotalish).last();
 }
 
 function normalizeSignalText(text: string): string {
@@ -118,29 +142,32 @@ export async function runBarboraAddToCartSpike(
 
   // Cookie dialog often mounts shortly after domcontentloaded; wait briefly then dismiss (retry once if it appears late).
   await page.waitForTimeout(1500);
-  await dismissCookieBannerIfPresent(page);
+  await dismissBarboraCookieBannerIfPresent(page);
   await page.waitForTimeout(800);
-  await dismissCookieBannerIfPresent(page);
+  await dismissBarboraCookieBannerIfPresent(page);
 
   const cartLoc = cartHeaderLocator(page);
   await cartLoc.waitFor({ state: 'visible', timeout: 20_000 })
     .catch(() => {
       throw new Error(
-        `${ERR} cart signal not found: no visible button.b-cart-in-header--btn with a price-like label (e.g. 0,00 €). Cannot verify cart changes. URL: ${page.url()}`,
+        `${ERR} cart signal not found: no visible header cart total (legacy .b-cart-in-header--btn or header control with a € amount like 0,00 €). If you see a delivery “connect” prompt, finish that in the browser, then re-run session:bootstrap. URL: ${page.url()}`,
       );
     });
 
   const beforeSignal = normalizeSignalText(await cartLoc.innerText());
 
-  const inMain = page.locator('main').getByRole('button', { name: ADD_TO_CART_NAME_RE }).first();
-  await inMain.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
-  const addBtn = (await inMain.isVisible().catch(() => false))
-    ? inMain
-    : page.getByRole('button', { name: ADD_TO_CART_NAME_RE }).first();
+  const { inPriceCol, inPageControl, globalFallback } = primaryAddToCartLocator(page);
+  await inPriceCol.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+  await inPageControl.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+
+  let addBtn = inPriceCol;
+  if (!(await inPriceCol.isVisible().catch(() => false))) {
+    addBtn = (await inPageControl.isVisible().catch(() => false)) ? inPageControl : globalFallback;
+  }
 
   await addBtn.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {
     throw new Error(
-      `${ERR} add-to-cart button not found. Tried: main.getByRole('button', { name: /Pievienot|В корзину|Add to cart/i }) then the same globally. Update ADD_TO_CART_NAME_RE or DOM scope if the site changed. URL: ${page.url()}`,
+      `${ERR} add-to-cart button not found. Tried: ${PDP_ADD_IN_PRICE_COL} and ${PDP_ADD_IN_PAGE_CONTROL} (role button, name /Pievienot|В корзину|Add to cart/i), then global fallback. Update selectors if Barbora changed again. URL: ${page.url()}`,
     );
   });
 
