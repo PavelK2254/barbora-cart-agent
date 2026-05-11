@@ -1,24 +1,59 @@
 /**
  * Barbora.lv search spike — DOM assumptions (fragile, verify after site updates):
- * - Desktop layout: visible search field is the last duplicate `#fti-search` (two nodes exist; first is hidden).
+ * - Search (2026-05): `#fti-search` removed; open overlay with `#fti-initiate-search` then use visible
+ *   `input[name="search"]` (Radix combobox) or legacy `#fti-search` if it returns.
  * - Results: product tiles use `.product-card-next`; each has `a[href^="/produkti/"]` and an `img[alt]` title.
- * - Cookie banner: optional `#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll`.
+ * - Cookie banner: shared `dismissBarboraCookieBannerIfPresent` (same as add-to-cart spike).
  * Waits use URL + visible tiles, not networkidle.
  */
 
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
+import { dismissBarboraCookieBannerIfPresent } from './barboraAddToCartSpike';
 import type { SearchCandidate } from './searchCandidate';
 
 const ERR = '[barbora-search-spike]';
 
 const BARBORA_ORIGIN = 'https://www.barbora.lv';
-const COOKIE_ALLOW = '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll';
-/** Prefer last matching input — Barbora renders a hidden duplicate for mobile/other layout. */
-const SEARCH_INPUT = '#fti-search';
 const RESULT_CARD = '.product-card-next';
 const NAV_TIMEOUT_MS = 45_000;
 const RESULTS_TIMEOUT_MS = 45_000;
+
+/** Prefer visible node when Barbora duplicates inputs for responsive layouts. */
+async function resolveVisibleSearchInput(page: Page): Promise<Locator> {
+  const legacy = page.locator('#fti-search');
+  const legacyCount = await legacy.count();
+  for (let i = legacyCount - 1; i >= 0; i--) {
+    const loc = legacy.nth(i);
+    if (await loc.isVisible().catch(() => false)) return loc;
+  }
+
+  const initiate = page.locator('#fti-initiate-search').first();
+  if (await initiate.isVisible().catch(() => false)) {
+    await initiate.click();
+  }
+
+  const named = page.locator('input[name="search"]');
+  await named
+    .first()
+    .waitFor({ state: 'visible', timeout: 15_000 })
+    .catch(() => {});
+  const n = await named.count();
+  for (let i = 0; i < n; i++) {
+    const loc = named.nth(i);
+    if (await loc.isVisible().catch(() => false)) return loc;
+  }
+
+  const combo = page.getByRole('combobox', {
+    name: /meklēt|meklet|search|поиск|товар|prece|product/i,
+  });
+  await combo.first().waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
+  if (await combo.first().isVisible().catch(() => false)) return combo.first();
+
+  throw new Error(
+    `${ERR} search field not visible (tried #fti-search, #fti-initiate-search + input[name="search"], combobox). URL: ${page.url()}`,
+  );
+}
 
 export interface RunBarboraSearchOptions {
   query: string;
@@ -61,18 +96,12 @@ export async function runBarboraSearchAndCollect(
     timeout: NAV_TIMEOUT_MS,
   });
 
-  const cookieBtn = page.locator(COOKIE_ALLOW);
-  if (await cookieBtn.isVisible().catch(() => false)) {
-    await cookieBtn.click();
-    await page.locator(SEARCH_INPUT).last().waitFor({ state: 'visible', timeout: 10_000 });
-  }
+  await page.waitForTimeout(1200);
+  await dismissBarboraCookieBannerIfPresent(page);
+  await page.waitForTimeout(600);
+  await dismissBarboraCookieBannerIfPresent(page);
 
-  const search = page.locator(SEARCH_INPUT).last();
-  await search.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {
-    throw new Error(
-      `${ERR} search field not visible (selector ${SEARCH_INPUT}). URL: ${page.url()}`,
-    );
-  });
+  const search = await resolveVisibleSearchInput(page);
 
   await search.fill(query);
   await search.press('Enter');

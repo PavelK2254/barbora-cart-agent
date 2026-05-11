@@ -2,7 +2,8 @@
  * Barbora.lv add-to-cart spike — DOM assumptions (fragile, verify after site updates):
  * - Cookie banner: `#CybotCookiebotDialog` with either `#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll`
  *   or role button name matching /Atļaut visus sīkfailus/i.
- * - Cart verification signal: legacy `button.b-cart-in-header--btn` **or** any `header` `a`/`button` whose text looks like a cart total (`0,00 €`); **.last()** prefers the visible duplicate when two nodes exist.
+ * - Cart verification signal: `#fti-cart-delivery` (2026 header, duplicate nodes — use **.first()** for the visible chip),
+ *   legacy `button.b-cart-in-header--btn`, or `header` `a`/`button` with a € amount.
  * - Add to cart (2026-05): Barbora dropped `<main>` on PDPs and no longer exposes a stable `id` on the CTA; scope the
  *   same accessible-name match to `.b-product-info--price-and-quantity` or `.b-product-info-wrap .b-product-page--quantity-control`
  *   so we do not click “В корзину” on unrelated product tiles. Re-verify with logged-in session: `npx tsx scripts/inspect-barbora-pdp.ts --url …`.
@@ -89,14 +90,13 @@ export async function dismissBarboraCookieBannerIfPresent(page: Page): Promise<v
   });
 }
 
-/** Header cart total: `.last()` prefers the visible duplicate when Barbora renders hidden + visible header controls. */
+/** Header cart total: `#fti-cart-delivery` is duplicated (mobile/desktop); `.first()` matches the visible instance in current Barbora DOM order. */
 function cartHeaderLocator(page: Page) {
-  const legacy = page.locator('button.b-cart-in-header--btn').filter({ hasText: /\d+[.,]\d+/ });
-  const headerTotalish = page
-    .locator('header')
-    .locator('a, button')
-    .filter({ hasText: /\d+[.,]\d+\s*€/ });
-  return legacy.or(headerTotalish).last();
+  const euro = /\d+[.,]\d+\s*€|\d+[.,]\d+€/;
+  const fti = page.locator('#fti-cart-delivery').first();
+  const legacy = page.locator('button.b-cart-in-header--btn').filter({ hasText: /\d+[.,]\d+/ }).last();
+  const headerMoney = page.locator('header a, header button').filter({ hasText: euro }).last();
+  return fti.or(legacy).or(headerMoney).first();
 }
 
 function normalizeSignalText(text: string): string {
@@ -143,14 +143,13 @@ export async function runBarboraAddToCartSpike(
   // Cookie dialog often mounts shortly after domcontentloaded; wait briefly then dismiss (retry once if it appears late).
   await page.waitForTimeout(1500);
   await dismissBarboraCookieBannerIfPresent(page);
-  await page.waitForTimeout(800);
-  await dismissBarboraCookieBannerIfPresent(page);
+  await page.waitForTimeout(1200);
 
   const cartLoc = cartHeaderLocator(page);
   await cartLoc.waitFor({ state: 'visible', timeout: 20_000 })
     .catch(() => {
       throw new Error(
-        `${ERR} cart signal not found: no visible header cart total (legacy .b-cart-in-header--btn or header control with a € amount like 0,00 €). If you see a delivery “connect” prompt, finish that in the browser, then re-run session:bootstrap. URL: ${page.url()}`,
+        `${ERR} cart signal not found: no visible header cart total (#fti-cart-delivery, legacy .b-cart-in-header--btn, or header link/button with a € amount). If you see a delivery “connect” prompt, finish that in the browser, then re-run session:bootstrap. URL: ${page.url()}`,
       );
     });
 
